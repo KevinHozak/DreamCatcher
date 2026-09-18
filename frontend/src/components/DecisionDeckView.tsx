@@ -1,0 +1,277 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  FileText,
+  Image as ImageIcon,
+  RotateCcw,
+  Sparkles,
+  ArrowRight,
+  Maximize2,
+  Calendar,
+  Compass
+} from 'lucide-react';
+import { getThumbnailUrl, getFullFileUrl, classifySingle, type MediaItem } from '../services/api';
+
+interface Props {
+  mixedItems: MediaItem[];
+  onComplete: (decisions: Record<string, { item: MediaItem; decision: 'DOCUMENT' | 'PHOTO' }>) => void;
+  onBack: () => void;
+}
+
+export const DecisionDeckView: React.FC<Props> = ({ mixedItems, onComplete, onBack }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [decisions, setDecisions] = useState<Record<string, { item: MediaItem; decision: 'DOCUMENT' | 'PHOTO' }>>({});
+  const [history, setHistory] = useState<string[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [currentCaption, setCurrentCaption] = useState<string>('');
+  const [showFull, setShowFull] = useState(false);
+
+  const currentItem = mixedItems[currentIndex];
+
+  // Fetch or set Moondream description for current item
+  useEffect(() => {
+    if (!currentItem) return;
+    if (currentItem.caption) {
+      setCurrentCaption(currentItem.caption);
+    } else {
+      setCurrentCaption(currentItem.reason || 'No description yet');
+    }
+  }, [currentIndex, currentItem]);
+
+  const handleDecision = useCallback(
+    (choice: 'DOCUMENT' | 'PHOTO') => {
+      if (!currentItem) return;
+      setDecisions((prev) => ({
+        ...prev,
+        [currentItem.id]: { item: currentItem, decision: choice },
+      }));
+      setHistory((prev) => [...prev, currentItem.id]);
+
+      if (currentIndex < mixedItems.length - 1) {
+        setCurrentIndex((prev) => prev + 1);
+      }
+    },
+    [currentItem, currentIndex, mixedItems.length]
+  );
+
+  const handleUndo = useCallback(() => {
+    if (history.length === 0) return;
+    const lastId = history[history.length - 1];
+    setDecisions((prev) => {
+      const next = { ...prev };
+      delete next[lastId];
+      return next;
+    });
+    setHistory((prev) => prev.slice(0, -1));
+    const targetIdx = mixedItems.findIndex((it) => it.id === lastId);
+    if (targetIdx !== -1) setCurrentIndex(targetIdx);
+  }, [history, mixedItems]);
+
+  const handleAskMoondream = async () => {
+    if (!currentItem) return;
+    setAiLoading(true);
+    try {
+      const res = await classifySingle(currentItem.path, 'ollama', 'moondream');
+      setCurrentCaption(res.caption || res.reason);
+    } catch {
+      setCurrentCaption('Local Ollama call failed');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Keyboard shortcut listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handleDecision('DOCUMENT');
+      } else if (e.key === 'f' || e.key === 'F' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        handleDecision('PHOTO');
+      } else if (e.key === 'z' || e.key === 'Z') {
+        e.preventDefault();
+        handleUndo();
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        setShowFull((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleDecision, handleUndo]);
+
+  const decidedCount = Object.keys(decisions).length;
+  const progressPercent = Math.round((decidedCount / mixedItems.length) * 100) || 0;
+
+  if (!currentItem || decidedCount === mixedItems.length) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[70vh] space-y-6 text-center">
+        <div className="w-20 h-20 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 text-3xl">
+          ✨
+        </div>
+        <h2 className="text-2xl font-bold text-white">All Ambiguous Photos Decided!</h2>
+        <p className="text-zinc-400 max-w-md">
+          You have reviewed all {mixedItems.length} mixed items. Ready to inspect your event clusters.
+        </p>
+        <button
+          onClick={() => onComplete(decisions)}
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-3 rounded-xl shadow-lg transition active:scale-95 cursor-pointer"
+        >
+          <span>Continue to Event Clusters</span>
+          <ArrowRight className="w-5 h-5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full space-y-4">
+      {/* Top Status Bar */}
+      <div className="flex items-center justify-between bg-zinc-900/80 border border-zinc-800 px-5 py-3 rounded-2xl">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="text-xs text-zinc-400 hover:text-white px-3 py-1.5 rounded-lg border border-zinc-800 hover:bg-zinc-800 cursor-pointer"
+          >
+            ← Clean Sweep
+          </button>
+          <span className="text-sm font-semibold text-white">
+            Decision Deck ({currentIndex + 1} of {mixedItems.length})
+          </span>
+        </div>
+
+        {/* Progress bar */}
+        <div className="flex items-center gap-4 w-72">
+          <div className="w-full bg-zinc-800 h-2 rounded-full overflow-hidden">
+            <div
+              className="bg-cyan-500 h-full transition-all duration-300"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <span className="text-xs text-zinc-400 whitespace-nowrap font-mono">{progressPercent}%</span>
+        </div>
+
+        <button
+          onClick={handleUndo}
+          disabled={history.length === 0}
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition ${
+            history.length > 0
+              ? 'text-zinc-300 border-zinc-700 hover:bg-zinc-800 cursor-pointer'
+              : 'text-zinc-600 border-zinc-900 cursor-not-allowed'
+          }`}
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          <span>Undo (Z)</span>
+        </button>
+      </div>
+
+      {/* Main Focus Viewport */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 max-h-[64vh]">
+        {/* Large Media Display */}
+        <div className="lg:col-span-8 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl flex items-center justify-center p-4 relative overflow-hidden group">
+          <img
+            src={getThumbnailUrl(currentItem.path, 1024)}
+            alt={currentItem.name}
+            className="max-h-[58vh] max-w-full object-contain rounded-lg shadow-2xl transition duration-200"
+          />
+
+          <button
+            onClick={() => setShowFull(!showFull)}
+            className="absolute bottom-4 right-4 bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 p-2.5 rounded-xl border border-zinc-700 shadow-xl opacity-0 group-hover:opacity-100 transition cursor-pointer"
+            title="Inspect Full Resolution (Space)"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Sidebar Info & Decision Cockpit */}
+        <div className="lg:col-span-4 flex flex-col justify-between space-y-4">
+          {/* Metadata Card */}
+          <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-5 space-y-4">
+            <div>
+              <div className="text-xs text-zinc-500 uppercase tracking-wider font-semibold">Media Item</div>
+              <h3 className="text-sm font-bold text-zinc-100 break-all">{currentItem.name}</h3>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs text-zinc-400">
+              <div className="flex items-center gap-2 bg-zinc-950/50 p-2 rounded-lg border border-zinc-800/60">
+                <Calendar className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span className="truncate">{currentItem.date_str}</span>
+              </div>
+              <div className="flex items-center gap-2 bg-zinc-950/50 p-2 rounded-lg border border-zinc-800/60">
+                <Compass className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="truncate">{currentItem.has_gps ? 'GPS Tagged' : 'No GPS'}</span>
+              </div>
+            </div>
+
+            {/* Moondream Vision Insight */}
+            <div className="p-3.5 bg-zinc-950/80 border border-zinc-800 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-purple-400 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Moondream Vision
+                </span>
+                <button
+                  onClick={handleAskMoondream}
+                  disabled={aiLoading}
+                  className="text-[10px] text-zinc-400 hover:text-white border border-zinc-800 px-2 py-0.5 rounded transition cursor-pointer"
+                >
+                  {aiLoading ? 'Analyzing...' : 'Re-scan'}
+                </button>
+              </div>
+              <p className="text-xs text-zinc-300 leading-relaxed italic">
+                "{currentCaption || 'Analyzing scene...'}"
+              </p>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="space-y-3">
+            <button
+              onClick={() => handleDecision('DOCUMENT')}
+              className="w-full flex items-center justify-between p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 font-semibold transition active:scale-98 cursor-pointer shadow-lg"
+            >
+              <div className="flex items-center gap-3">
+                <FileText className="w-5 h-5 text-amber-400" />
+                <span>Move to Pictures_Doc</span>
+              </div>
+              <kbd className="bg-amber-950/80 border border-amber-500/40 text-amber-300 text-xs px-2.5 py-1 rounded font-mono font-bold">
+                D
+              </kbd>
+            </button>
+
+            <button
+              onClick={() => handleDecision('PHOTO')}
+              className="w-full flex items-center justify-between p-4 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 font-semibold transition active:scale-98 cursor-pointer shadow-lg"
+            >
+              <div className="flex items-center gap-3">
+                <ImageIcon className="w-5 h-5 text-cyan-400" />
+                <span>Keep in Family Pictures</span>
+              </div>
+              <kbd className="bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-xs px-2.5 py-1 rounded font-mono font-bold">
+                F
+              </kbd>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Fullscreen Modal View */}
+      {showFull && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-6 cursor-pointer"
+          onClick={() => setShowFull(false)}
+        >
+          <img
+            src={getFullFileUrl(currentItem.path)}
+            alt={currentItem.name}
+            className="max-h-full max-w-full object-contain rounded-lg shadow-2xl"
+          />
+        </div>
+      )}
+    </div>
+  );
+};
