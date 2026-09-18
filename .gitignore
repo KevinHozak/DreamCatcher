@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*.log
+
+# Node
+node_modules/
+dist/
+build/
+
+# Environment / Local
+.env
+.env.local
+*.tmp
+vision_cache.json
+_bucket_review_state.json
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
