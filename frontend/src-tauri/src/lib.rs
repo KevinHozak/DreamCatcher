@@ -89,6 +89,9 @@ async fn get_system_status(ollama_url: Option<String>) -> Result<SystemStatusPay
 
                     let _ = std::process::Command::new(&ollama_bin)
                         .arg("serve")
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
                         .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
                         .spawn();
                 }
