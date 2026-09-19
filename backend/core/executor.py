@@ -57,17 +57,31 @@ def execute_triage_plan(
     success_count = 0
     error_count = 0
 
+    trash_dir = source_dir / 'Trash'
+
     for file_id, info in triage_decisions.items():
         src_path = Path(info['path'])
         if not src_path.exists():
             continue
 
-        category = info.get('category', 'FAMILY')
+        category = info.get('category', 'FAMILY').upper()
+        if category == 'SKIP':
+            ledger_entries.append({
+                "id": file_id,
+                "src": str(src_path),
+                "dest": str(src_path),
+                "category": "SKIP",
+                "sidecars": []
+            })
+            continue
+
         is_video = info.get('is_video', False)
         dest_folder = info.get('folder_name', 'Daily Life')
         month_str = info.get('month_str', 'General')
 
-        if category == 'DOCUMENT':
+        if category == 'TRASH':
+            target_dir = trash_dir / month_str
+        elif category == 'DOCUMENT':
             target_dir = docs_dir / month_str
         else:
             target_dir = (vids_dir if is_video else pics_dir) / dest_folder
@@ -173,6 +187,9 @@ def rollback_triage_plan(source_dir: Path) -> Dict[str, Any]:
     errors = 0
 
     for item in entries:
+        if item.get("category") == "SKIP" or item.get("dest") == item.get("src"):
+            continue
+
         dest_path = Path(item["dest"])
         src_path = Path(item["src"])
 
@@ -205,8 +222,8 @@ def rollback_triage_plan(source_dir: Path) -> Dict[str, Any]:
             except Exception:
                 errors += 1
 
-    # Cleanup empty directories created during triage under Pictures, Videos, Pictures_Doc
-    for sub in ('Pictures', 'Videos', 'Pictures_Doc'):
+    # Cleanup empty directories created during triage under Pictures, Videos, Pictures_Doc, Trash
+    for sub in ('Pictures', 'Videos', 'Pictures_Doc', 'Trash'):
         target_sub = source_dir / sub
         if target_sub.exists() and target_sub.is_dir():
             for root, dirs, files in os.walk(target_sub, topdown=False):

@@ -3,8 +3,9 @@ routes_media.py - High-speed cached thumbnail and media streaming endpoint
 """
 
 import io
+from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, FileResponse
 from PIL import Image
@@ -19,8 +20,23 @@ from core.scanner import VIDEO_EXTS
 
 router = APIRouter(prefix="/api/media", tags=["media"])
 
-# Simple in-memory thumbnail cache (keyed by path + size: (data_bytes, media_type))
-THUMB_CACHE: Dict[str, Tuple[bytes, str]] = {}
+# In-memory LRU thumbnail cache (capped at 500 items to prevent memory bloat and starvation)
+MAX_THUMB_CACHE = 500
+THUMB_CACHE: OrderedDict[str, Tuple[bytes, str]] = OrderedDict()
+
+
+def get_cached_thumb(cache_key: str) -> Optional[Tuple[bytes, str]]:
+    if cache_key in THUMB_CACHE:
+        THUMB_CACHE.move_to_end(cache_key)
+        return THUMB_CACHE[cache_key]
+    return None
+
+
+def set_cached_thumb(cache_key: str, content: bytes, media_type: str):
+    THUMB_CACHE[cache_key] = (content, media_type)
+    THUMB_CACHE.move_to_end(cache_key)
+    if len(THUMB_CACHE) > MAX_THUMB_CACHE:
+        THUMB_CACHE.popitem(last=False)
 
 
 def generate_video_thumbnail_svg(filename: str, max_dim: int = 320) -> bytes:
@@ -73,16 +89,16 @@ def get_thumbnail(path: str = Query(...), max_dim: int = Query(320)):
         raise HTTPException(status_code=404, detail="File not found")
 
     cache_key = f"{path}_{max_dim}"
-    if cache_key in THUMB_CACHE:
-        content, media_type = THUMB_CACHE[cache_key]
+    cached = get_cached_thumb(cache_key)
+    if cached:
+        content, media_type = cached
         return Response(content=content, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
 
     # Intercept video extensions before PIL Image.open()
     if file_path.suffix.lower() in VIDEO_EXTS:
         svg_data = generate_video_thumbnail_svg(file_path.name, max_dim=max_dim)
         media_type = "image/svg+xml"
-        if len(THUMB_CACHE) < 500:
-            THUMB_CACHE[cache_key] = (svg_data, media_type)
+        set_cached_thumb(cache_key, svg_data, media_type)
         return Response(content=svg_data, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
 
     try:
@@ -98,10 +114,7 @@ def get_thumbnail(path: str = Query(...), max_dim: int = Query(320)):
             data = buf.getvalue()
             media_type = "image/jpeg"
             
-            # Keep cache reasonable (up to 500 thumbnails in RAM)
-            if len(THUMB_CACHE) < 500:
-                THUMB_CACHE[cache_key] = (data, media_type)
-
+            set_cached_thumb(cache_key, data, media_type)
             return Response(content=data, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to render thumbnail: {str(e)}")
