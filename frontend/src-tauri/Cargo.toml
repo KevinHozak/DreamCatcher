@@ -28,5 +28,6 @@ walkdir = "2.5"
 chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
 regex = "1.10"
+sha2 = "0.10"
 tokio = { version = "1", features = ["full"] }
 percent-encoding = "2.3"

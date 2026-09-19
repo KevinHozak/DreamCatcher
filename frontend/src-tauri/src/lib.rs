@@ -1,5 +1,6 @@
 mod classifier;
 mod clustering;
+mod duplicates;
 mod inventory;
 mod executor;
 mod media;
@@ -305,6 +306,15 @@ fn query_inventory(app: AppHandle, query: inventory::InventoryQuery) -> Result<i
     inventory::query(&app, query)
 }
 
+#[tauri::command]
+fn analyze_duplicates(app: AppHandle) -> Result<serde_json::Value, String> { duplicates::analyze(&app) }
+
+#[tauri::command]
+fn get_duplicate_groups(app: AppHandle) -> Result<serde_json::Value, String> { duplicates::list(&app) }
+
+#[tauri::command]
+fn exclude_duplicate_member(app: AppHandle, group_id: String, identity: String, excluded: bool) -> Result<(), String> { duplicates::exclude(&app, group_id, identity, excluded) }
+
 fn url_decode(input: &str) -> String {
     percent_encoding::percent_decode_str(input)
         .decode_utf8_lossy()
@@ -399,6 +409,9 @@ pub fn run() {
             scan_inventory,
             get_inventory_stats,
             query_inventory,
+            analyze_duplicates,
+            get_duplicate_groups,
+            exclude_duplicate_member,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

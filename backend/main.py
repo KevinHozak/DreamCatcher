@@ -16,6 +16,7 @@ from api.routes_scan import router as scan_router
 from api.routes_execute import router as execute_router
 from api.routes_settings import router as settings_router
 from api.routes_inventory import router as inventory_router
+from api.routes_duplicates import router as duplicates_router
 
 app = FastAPI(
     title="DreamCatcher API",
@@ -37,6 +38,7 @@ app.include_router(scan_router)
 app.include_router(execute_router)
 app.include_router(settings_router)
 app.include_router(inventory_router)
+app.include_router(duplicates_router)
 
 
 @app.get("/")

@@ -95,6 +95,24 @@ export interface InventoryPage {
   page_size: number;
 }
 
+export interface DuplicateMember {
+  group_id: string;
+  identity: string;
+  path: string;
+  size: number;
+  timestamp: string;
+  excluded: boolean;
+}
+
+export interface DuplicateGroup {
+  group_id: string;
+  fingerprint: string;
+  match_kind: 'exact' | 'perceptual';
+  confidence: number;
+  created_at: string;
+  members: DuplicateMember[];
+}
+
 export interface InventoryQuery {
   rootKind: 'pictures' | 'videos';
   search?: string;
@@ -159,6 +177,30 @@ export async function queryInventory(query: InventoryQuery): Promise<InventoryPa
   const res = await fetch(`${API_BASE}/api/inventory/items?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to query inventory');
   return res.json();
+}
+
+export async function analyzeDuplicates(): Promise<{ groups: number; members: number; match_kind: string }> {
+  if (isTauri) return await invoke('analyze_duplicates');
+  const res = await fetch(`${API_BASE}/api/duplicates/analyze`, { method: 'POST' });
+  if (!res.ok) throw new Error('Duplicate analysis failed');
+  return res.json();
+}
+
+export async function fetchDuplicateGroups(page = 1): Promise<{ groups: DuplicateGroup[]; total: number; page: number; page_size: number }> {
+  if (isTauri) return await invoke('get_duplicate_groups');
+  const res = await fetch(`${API_BASE}/api/duplicates?page=${page}&page_size=50`);
+  if (!res.ok) throw new Error('Failed to load duplicate groups');
+  return res.json();
+}
+
+export async function excludeDuplicateMember(groupId: string, identity: string, excluded: boolean): Promise<void> {
+  if (isTauri) { await invoke('exclude_duplicate_member', { groupId, identity, excluded }); return; }
+  const res = await fetch(`${API_BASE}/api/duplicates/exclude`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: groupId, identity, excluded }),
+  });
+  if (!res.ok) throw new Error('Could not update duplicate review');
 }
 
 export async function fetchSettings(): Promise<AppSettings> {
