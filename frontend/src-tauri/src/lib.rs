@@ -300,6 +300,11 @@ fn get_inventory_stats(app: AppHandle) -> Result<inventory::InventoryStats, Stri
     inventory::stats(&app)
 }
 
+#[tauri::command]
+fn query_inventory(app: AppHandle, query: inventory::InventoryQuery) -> Result<inventory::InventoryPage, String> {
+    inventory::query(&app, query)
+}
+
 fn url_decode(input: &str) -> String {
     percent_encoding::percent_decode_str(input)
         .decode_utf8_lossy()
@@ -393,6 +398,7 @@ pub fn run() {
             rollback_triage,
             scan_inventory,
             get_inventory_stats,
+            query_inventory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

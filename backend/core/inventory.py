@@ -185,3 +185,62 @@ def inventory_stats(inventory_path: Optional[Path] = None) -> dict:
         return stats
     finally:
         conn.close()
+
+
+def query_inventory(
+    root_kind: str,
+    search: Optional[str] = None,
+    year: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    extension: Optional[str] = None,
+    min_size: Optional[int] = None,
+    max_size: Optional[int] = None,
+    state: str = "available",
+    page: int = 1,
+    page_size: int = 50,
+    inventory_path: Optional[Path] = None,
+) -> dict:
+    if root_kind not in {"pictures", "videos"}:
+        raise ValueError("root_kind must be pictures or videos")
+    page = max(1, page)
+    page_size = min(100, max(1, page_size))
+    clauses = ["root_kind = ?"]
+    params: list[object] = [root_kind]
+    if search and search.strip():
+        clauses.append("LOWER(path) LIKE ?")
+        params.append(f"%{search.strip().lower()}%")
+    if year is not None:
+        clauses.append("timestamp LIKE ?")
+        params.append(f"{year:04d}-%")
+    if date_from:
+        clauses.append("timestamp >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("timestamp < ?")
+        params.append(date_to)
+    if extension and extension.strip():
+        clauses.append("extension = ?")
+        normalized = extension.strip().lower()
+        params.append(normalized if normalized.startswith(".") else f".{normalized}")
+    if min_size is not None:
+        clauses.append("size >= ?")
+        params.append(max(0, min_size))
+    if max_size is not None:
+        clauses.append("size <= ?")
+        params.append(max(0, max_size))
+    if state in {"available", "stale"}:
+        clauses.append("state = ?")
+        params.append(state)
+
+    where = " AND ".join(clauses)
+    db = _connect(inventory_path or default_inventory_path())
+    try:
+        total = db.execute(f"SELECT COUNT(*) FROM media_inventory WHERE {where}", params).fetchone()[0]
+        rows = db.execute(
+            f"SELECT identity,path,root_kind,media_type,extension,size,timestamp,is_undated,has_sidecar,has_gps,state FROM media_inventory WHERE {where} ORDER BY timestamp DESC, path LIMIT ? OFFSET ?",
+            [*params, page_size, (page - 1) * page_size],
+        ).fetchall()
+        return {"items": [dict(row) for row in rows], "total": total, "page": page, "page_size": page_size}
+    finally:
+        db.close()

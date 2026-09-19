@@ -74,6 +74,41 @@ export interface InventoryStats {
   last_scan: InventoryScanSummary | null;
 }
 
+export interface InventoryItem {
+  identity: string;
+  path: string;
+  root_kind: 'pictures' | 'videos';
+  media_type: 'picture' | 'video';
+  extension: string;
+  size: number;
+  timestamp: string;
+  is_undated: boolean;
+  has_sidecar: boolean;
+  has_gps: boolean;
+  state: 'available' | 'stale';
+}
+
+export interface InventoryPage {
+  items: InventoryItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface InventoryQuery {
+  rootKind: 'pictures' | 'videos';
+  search?: string;
+  year?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  extension?: string;
+  minSize?: number;
+  maxSize?: number;
+  state?: 'available' | 'stale';
+  page?: number;
+  pageSize?: number;
+}
+
 export async function scanInventory(root: string, rootKind: 'pictures' | 'videos'): Promise<InventoryScanSummary> {
   if (isTauri) return await invoke<InventoryScanSummary>('scan_inventory', { root, rootKind });
   const res = await fetch(`${API_BASE}/api/inventory/scan`, {
@@ -92,6 +127,37 @@ export async function fetchInventoryStats(): Promise<InventoryStats> {
   if (isTauri) return await invoke<InventoryStats>('get_inventory_stats');
   const res = await fetch(`${API_BASE}/api/inventory/stats`);
   if (!res.ok) throw new Error('Failed to load inventory statistics');
+  return res.json();
+}
+
+export async function queryInventory(query: InventoryQuery): Promise<InventoryPage> {
+  if (isTauri) {
+    return await invoke<InventoryPage>('query_inventory', {
+      query: {
+        root_kind: query.rootKind,
+        search: query.search || null,
+        year: query.year || null,
+        date_from: query.dateFrom || null,
+        date_to: query.dateTo || null,
+        extension: query.extension || null,
+        min_size: query.minSize ?? null,
+        max_size: query.maxSize ?? null,
+        state: query.state || 'available',
+        page: query.page || 1,
+        page_size: query.pageSize || 50,
+      },
+    });
+  }
+  const params = new URLSearchParams({ root_kind: query.rootKind, page: String(query.page || 1), page_size: String(query.pageSize || 50), state: query.state || 'available' });
+  if (query.search) params.set('search', query.search);
+  if (query.year) params.set('year', String(query.year));
+  if (query.dateFrom) params.set('date_from', query.dateFrom);
+  if (query.dateTo) params.set('date_to', query.dateTo);
+  if (query.extension) params.set('extension', query.extension);
+  if (query.minSize !== undefined) params.set('min_size', String(query.minSize));
+  if (query.maxSize !== undefined) params.set('max_size', String(query.maxSize));
+  const res = await fetch(`${API_BASE}/api/inventory/items?${params.toString()}`);
+  if (!res.ok) throw new Error('Failed to query inventory');
   return res.json();
 }
 

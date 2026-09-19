@@ -50,6 +50,29 @@ pub struct InventoryStats {
     pub last_scan: Option<InventoryScanSummary>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InventoryQuery {
+    pub root_kind: String,
+    pub search: Option<String>,
+    pub year: Option<i32>,
+    pub date_from: Option<String>,
+    pub date_to: Option<String>,
+    pub extension: Option<String>,
+    pub min_size: Option<u64>,
+    pub max_size: Option<u64>,
+    pub state: Option<String>,
+    pub page: Option<usize>,
+    pub page_size: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InventoryPage {
+    pub items: Vec<InventoryRecord>,
+    pub total: usize,
+    pub page: usize,
+    pub page_size: usize,
+}
+
 fn inventory_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().app_data_dir().map_err(|e| format!("Could not locate app data folder: {e}"))?.join("inventory.json"))
 }
@@ -124,4 +147,34 @@ pub fn stats(app: &AppHandle) -> Result<InventoryStats, String> {
     }
     result.last_scan = store.scans.last().cloned();
     Ok(result)
+}
+
+pub fn query(app: &AppHandle, query: InventoryQuery) -> Result<InventoryPage, String> {
+    if query.root_kind != "pictures" && query.root_kind != "videos" {
+        return Err("root_kind must be pictures or videos".to_string());
+    }
+    let store = load(&inventory_path(app)?)?;
+    let search = query.search.unwrap_or_default().to_lowercase();
+    let extension = query.extension.map(|value| {
+        let value = value.to_lowercase();
+        if value.starts_with('.') { value } else { format!(".{value}") }
+    });
+    let state = query.state.unwrap_or_else(|| "available".to_string());
+    let filtered: Vec<InventoryRecord> = store.records.into_iter().filter(|record| {
+        if record.root_kind != query.root_kind || (state == "available" || state == "stale") && record.state != state { return false; }
+        if !search.is_empty() && !record.path.to_lowercase().contains(&search) { return false; }
+        if let Some(year) = query.year { if !record.timestamp.starts_with(&format!("{year:04}-")) { return false; } }
+        if let Some(date_from) = &query.date_from { if record.timestamp < *date_from { return false; } }
+        if let Some(date_to) = &query.date_to { if record.timestamp >= *date_to { return false; } }
+        if let Some(extension) = &extension { if &record.extension != extension { return false; } }
+        if let Some(min_size) = query.min_size { if record.size < min_size { return false; } }
+        if let Some(max_size) = query.max_size { if record.size > max_size { return false; } }
+        true
+    }).collect();
+    let page = query.page.unwrap_or(1).max(1);
+    let page_size = query.page_size.unwrap_or(50).clamp(1, 100);
+    let start = (page - 1) * page_size;
+    let total = filtered.len();
+    let items = filtered.into_iter().skip(start).take(page_size).collect();
+    Ok(InventoryPage { items, total, page, page_size })
 }
