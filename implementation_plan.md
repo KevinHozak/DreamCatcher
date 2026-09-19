@@ -1,53 +1,35 @@
-# Issue #18 Implementation Plan: Indexed Pictures and Videos Inventory
+# Issue #19 Implementation Plan: Configured Destination Routing
 
-## Dependency Note
+## Dependency
 
-Issue #18 depends on #17. This branch starts from `origin/main` as required by the work workflow. The final implementation should consume the merged settings contract from #17, or be rebased onto that branch if #17 is still under review.
+Issue #19 depends on the persisted folder-settings contract from #17 and consumes the inventory/media boundaries from #18 where available.
 
 ## Acceptance Criteria Mapping
 
-1. Configured Pictures and Videos roots can be scanned independently.
-2. Repeated scans do not duplicate records and handle moved or removed files safely.
-3. Statistics come from the canonical inventory and distinguish pictures from videos.
-4. Unsupported, unreadable, and malformed files are reported without aborting the scan.
-5. Tests cover incremental scans, stale records, cancellation, and representative metadata.
+1. Picture albums route to the configured Pictures destination and video albums route to Videos.
+2. Resolved destinations are visible before execution.
+3. Unsafe or ambiguous destinations block execution before file changes.
+4. Collision and rollback behavior remains intact.
+5. Tests cover mixed media, repeated execution, collisions, and partial failures.
 
-## Current State
+## Implemented Design
 
-- `backend/core/scanner.py` and `frontend/src-tauri/src/scanner.rs` perform filesystem scans but return transient lists only.
-- Existing records include paths, extensions, media type, size, timestamps, sidecars, and GPS where available.
-- Existing scans skip protected directories and support a month filter, but do not persist scan provenance or stale-record state.
-- The frontend currently consumes scan results directly as triage state.
+- Keep existing source-relative `Pictures` and `Videos` folders as the fallback when a destination is unset.
+- Accept configured destinations through both the Python API and Tauri command boundary.
+- Validate configured destinations before processing any decision: existing directory, not the source root, and no overlap between Pictures and Videos.
+- Preserve the existing unique-name collision strategy and ledger-based rollback.
+- Return resolved destinations in execution results and show them in the final execution preview.
 
-## Proposed Architecture
+## Target Files
 
-- Define a canonical media-record schema with a stable identity, canonical path, media type, byte size, timestamps, metadata provenance, scan ID, and availability state.
-- Add a local persistence layer appropriate to the desktop runtime, keeping the canonical inventory separate from thumbnail/search/face-derived caches.
-- Implement independent Pictures and Videos scan jobs with progress, cancellation, skipped-file diagnostics, and last-successful-scan metadata.
-- Reconcile each scan by upserting discovered records, marking missing records stale, and avoiding duplicate rows when a scan repeats.
-- Provide statistics for picture/video counts, total bytes, extensions, date ranges, stale records, skipped files, and scan health.
-- Expose a query/API contract that later library browsing and filters can consume without rescanning the filesystem.
-
-## Proposed File Changes
-
-- Add inventory models and persistence under `frontend/src-tauri/src/` for the native runtime.
-- Add matching Python inventory/API modules for development mode.
-- Extend scanner results with stable identity, provenance, and diagnostics without changing existing triage behavior.
-- Add frontend API types and scan-status/statistics state.
-- Add focused Rust and Python tests using temporary media trees, malformed files, repeated scans, removed files, and cancellation.
-
-## Safety and Performance
-
-- Never delete user files as part of indexing.
-- Treat unreadable files as diagnostics, not fatal scan errors.
-- Keep canonical paths normalized and avoid following protected/generated directories.
-- Bound memory and UI updates for large libraries; do not require thumbnails during indexing.
-- Make cancellation leave the last completed inventory intact and mark the interrupted run clearly.
+- `backend/core/executor.py` and `backend/api/routes_execute.py`
+- `frontend/src-tauri/src/executor.rs` and `frontend/src-tauri/src/lib.rs`
+- `frontend/src/services/api.ts`, `frontend/src/App.tsx`, and `frontend/src/components/ExecutionModal.tsx`
+- `backend/tests/test_destination_routing.py`
 
 ## Verification Plan
 
-- Run Rust inventory tests and existing media tests.
-- Run Python scanner/API tests and an incremental reconciliation test suite.
-- Run frontend TypeScript and lint checks.
-- Validate statistics against a fixture tree containing pictures, videos, sidecars, malformed files, duplicates, and removed files.
-- Run `git diff --check` and inspect the final diff for unrelated changes.
+- Test configured picture/video routing and fallback behavior.
+- Test overlap and invalid-destination rejection before file movement.
+- Run existing collision and rollback tests.
+- Run Rust tests, TypeScript compilation, frontend lint, Python compilation, and `git diff --check`.

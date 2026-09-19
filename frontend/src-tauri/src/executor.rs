@@ -101,10 +101,15 @@ pub fn execute_triage_plan(
     source_dir: &Path,
     decisions: HashMap<String, DecisionInfo>,
     action: &str,
+    pictures_dir: Option<PathBuf>,
+    videos_dir: Option<PathBuf>,
 ) -> Result<ExecutionResult, String> {
     let source_dir = source_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
-    let pics_dir = source_dir.join("Pictures");
-    let vids_dir = source_dir.join("Videos");
+    let pics_dir = resolve_destination(&source_dir, pictures_dir, "Pictures")?;
+    let vids_dir = resolve_destination(&source_dir, videos_dir, "Videos")?;
+    if pics_dir == vids_dir || pics_dir.starts_with(&vids_dir) || vids_dir.starts_with(&pics_dir) {
+        return Err("Pictures and Videos destinations must be different non-overlapping directories".to_string());
+    }
     let docs_dir = source_dir.join("Pictures_Doc");
     let trash_dir = source_dir.join("Trash");
 
@@ -255,6 +260,25 @@ pub fn execute_triage_plan(
         errors: error_count,
         ledger: ledger_file.to_string_lossy().to_string(),
     })
+}
+
+fn resolve_destination(source_dir: &Path, configured: Option<PathBuf>, label: &str) -> Result<PathBuf, String> {
+    let is_configured = configured.is_some();
+    let destination = configured.unwrap_or_else(|| source_dir.join(label));
+    if !destination.exists() {
+        if is_configured {
+            return Err(format!("{} destination does not exist: {:?}", label, destination));
+        }
+        return Ok(destination);
+    }
+    if !destination.is_dir() {
+        return Err(format!("{} destination is not a directory: {:?}", label, destination));
+    }
+    let canonical = destination.canonicalize().map_err(|e| format!("Invalid {} destination: {}", label, e))?;
+    if canonical == source_dir {
+        return Err(format!("{} destination cannot be the source folder", label));
+    }
+    Ok(canonical)
 }
 
 pub fn rollback_triage_plan(source_dir: &Path) -> Result<RollbackResult, String> {

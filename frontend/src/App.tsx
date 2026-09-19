@@ -608,6 +608,8 @@ export function App() {
       {showExecutionModal && (
         <ExecutionModal
           sourceDir={sourceDir}
+          picturesDir={settings.pictures_dir}
+          videosDir={settings.videos_dir}
           decisions={buildFinalDecisions()}
           onClose={() => setShowExecutionModal(false)}
           onSuccess={() => {

@@ -16,6 +16,8 @@ class ExecuteRequest(BaseModel):
     source_dir: str
     decisions: Dict[str, Dict[str, Any]]
     action: str = "move"
+    pictures_dir: str | None = None
+    videos_dir: str | None = None
 
 
 class RollbackRequest(BaseModel):
@@ -55,12 +57,16 @@ def execute_operations(req: ExecuteRequest):
     if not src.exists() or not src.is_dir():
         raise HTTPException(status_code=400, detail="Invalid source directory")
 
-    result = execute_triage_plan(
-        source_dir=src,
-        triage_decisions=req.decisions,
-        action=req.action
-    )
-    return result
+    try:
+        return execute_triage_plan(
+            source_dir=src,
+            triage_decisions=req.decisions,
+            action=req.action,
+            pictures_dir=Path(req.pictures_dir) if req.pictures_dir else None,
+            videos_dir=Path(req.videos_dir) if req.videos_dir else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/rollback")

@@ -38,7 +38,9 @@ def get_unique_destination_path(target_path: Path) -> Path:
 def execute_triage_plan(
     source_dir: Path,
     triage_decisions: Dict[str, Dict[str, Any]],
-    action: str = "move"
+    action: str = "move",
+    pictures_dir: Path | None = None,
+    videos_dir: Path | None = None,
 ) -> Dict[str, Any]:
     """
     Executes triage decisions:
@@ -49,8 +51,10 @@ def execute_triage_plan(
     Writes a rollback ledger to source_dir / '_dreamcatcher_ledger.json'.
     """
     source_dir = source_dir.resolve()
-    pics_dir = source_dir / 'Pictures'
-    vids_dir = source_dir / 'Videos'
+    pics_dir = _validate_destination(source_dir, pictures_dir or source_dir / 'Pictures', 'Pictures')
+    vids_dir = _validate_destination(source_dir, videos_dir or source_dir / 'Videos', 'Videos')
+    if pics_dir == vids_dir or pics_dir in vids_dir.parents or vids_dir in pics_dir.parents:
+        raise ValueError("Pictures and Videos destinations must be different non-overlapping directories")
     docs_dir = source_dir / 'Pictures_Doc'
 
     ledger_entries = []
@@ -162,8 +166,18 @@ def execute_triage_plan(
         "success": True,
         "moved": success_count,
         "errors": error_count,
-        "ledger": str(ledger_file)
+        "ledger": str(ledger_file),
+        "destinations": {"pictures": str(pics_dir), "videos": str(vids_dir)},
     }
+
+
+def _validate_destination(source_dir: Path, destination: Path, label: str) -> Path:
+    destination = destination.expanduser().resolve()
+    if not destination.exists() or not destination.is_dir():
+        raise ValueError(f"{label} destination does not exist or is not a directory: {destination}")
+    if destination == source_dir:
+        raise ValueError(f"{label} destination cannot be the source folder")
+    return destination
 
 
 def rollback_triage_plan(source_dir: Path) -> Dict[str, Any]:

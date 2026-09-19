@@ -4,6 +4,8 @@ import { executeTriage } from '../services/api';
 
 interface Props {
   sourceDir: string;
+  picturesDir?: string | null;
+  videosDir?: string | null;
   decisions: Record<string, any>;
   onClose: () => void;
   onSuccess: () => void;
@@ -11,6 +13,8 @@ interface Props {
 
 export const ExecutionModal: React.FC<Props> = ({
   sourceDir,
+  picturesDir,
+  videosDir,
   decisions,
   onClose,
   onSuccess,
@@ -32,7 +36,7 @@ export const ExecutionModal: React.FC<Props> = ({
     setIsExecuting(true);
     setError(null);
     try {
-      const res = await executeTriage(sourceDir, decisions, action);
+      const res = await executeTriage(sourceDir, decisions, action, picturesDir, videosDir);
       setResult(res);
       onSuccess();
     } catch (err: any) {
@@ -71,13 +75,13 @@ export const ExecutionModal: React.FC<Props> = ({
           <div className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800">
             <div className="text-xs text-zinc-500 font-semibold">Family Pictures</div>
             <div className="text-lg font-bold text-cyan-400">{photoCount} photos</div>
-            <div className="text-[11px] text-zinc-400">→ Pictures/ (Event & Daily folders)</div>
+            <div className="text-[11px] text-zinc-400 truncate" title={picturesDir || `${sourceDir}\\Pictures`}>→ {picturesDir || `${sourceDir}\\Pictures`} (Event & Daily)</div>
           </div>
 
           <div className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800">
             <div className="text-xs text-zinc-500 font-semibold">Family Videos</div>
             <div className="text-lg font-bold text-cyan-400">{videoCount} videos</div>
-            <div className="text-[11px] text-zinc-400">→ Videos/</div>
+            <div className="text-[11px] text-zinc-400 truncate" title={videosDir || `${sourceDir}\\Videos`}>→ {videosDir || `${sourceDir}\\Videos`}</div>
           </div>
 
           <div className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800">
