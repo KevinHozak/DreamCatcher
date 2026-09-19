@@ -7,7 +7,8 @@ import {
   Filter,
   X,
   RotateCcw,
-  CheckCircle2
+  CheckCircle2,
+  Settings
 } from 'lucide-react';
 import {
   type MediaItem,
@@ -17,18 +18,27 @@ import {
   fetchSystemStatus,
   scanFolder,
   clusterMedia,
-  rollbackTriage
+  rollbackTriage,
+  type AppSettings,
+  fetchSettings
 } from './services/api';
 import { CleanSweepView } from './components/CleanSweepView';
 import { DecisionDeckView } from './components/DecisionDeckView';
 import { ClusterView } from './components/ClusterView';
 import { ExecutionModal } from './components/ExecutionModal';
+import { SettingsView } from './components/SettingsView';
 
 type Step = 'ingest' | 'clean_sweep' | 'decision_deck' | 'clustering';
 
 export function App() {
   const [step, setStep] = useState<Step>('ingest');
   const [sourceDir, setSourceDir] = useState<string>('C:\\Transfer\\Takeout\\K Photos\\2024');
+  const [settings, setSettings] = useState<AppSettings>({
+    source_dir: 'C:\\Transfer\\Takeout\\K Photos\\2024',
+    pictures_dir: null,
+    videos_dir: null,
+  });
+  const [showSettings, setShowSettings] = useState(false);
   const [monthFilter, setMonthFilter] = useState<string>('');
   const [scanStats, setScanStats] = useState<ScanResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -60,6 +70,12 @@ export function App() {
   };
 
   useEffect(() => {
+    fetchSettings()
+      .then((loaded) => {
+        setSettings(loaded);
+        setSourceDir(loaded.source_dir);
+      })
+      .catch(() => undefined);
     checkStatus();
     const interval = setInterval(checkStatus, 5000);
     return () => clearInterval(interval);
@@ -351,11 +367,32 @@ export function App() {
             <option value="ollama">Local Moondream</option>
             <option value="gemini">Gemini Flash-Lite</option>
           </select>
+
+          <button
+            type="button"
+            onClick={() => setShowSettings(true)}
+            className="flex items-center gap-2 bg-zinc-950 hover:bg-zinc-900 px-3 py-1.5 rounded-xl border border-zinc-800 hover:border-zinc-700 text-xs transition cursor-pointer"
+            title="Open folder settings"
+          >
+            <Settings className="w-3.5 h-3.5 text-zinc-400" />
+            <span className="text-zinc-300 font-medium">Settings</span>
+          </button>
         </div>
       </header>
 
       {/* Main View Container */}
       <main className="flex-1 p-6 max-w-7xl w-full mx-auto flex flex-col">
+        {showSettings ? (
+          <SettingsView
+            settings={settings}
+            onSaved={(saved) => {
+              setSettings(saved);
+              setSourceDir(saved.source_dir);
+            }}
+            onClose={() => setShowSettings(false)}
+          />
+        ) : (
+          <>
         {rollbackStatus && (
           <div className="mb-4 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -562,6 +599,8 @@ export function App() {
             onCommit={handleClusterCommit}
             onBack={() => setStep('decision_deck')}
           />
+        )}
+          </>
         )}
       </main>
 

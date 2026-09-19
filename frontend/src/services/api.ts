@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 
 export const API_BASE = 'http://127.0.0.1:8080';
 
@@ -45,6 +46,41 @@ export interface SystemStatus {
     models: string[];
     has_moondream: boolean;
   };
+}
+
+export interface AppSettings {
+  source_dir: string;
+  pictures_dir: string | null;
+  videos_dir: string | null;
+}
+
+export async function fetchSettings(): Promise<AppSettings> {
+  if (isTauri) return await invoke<AppSettings>('get_settings');
+
+  const res = await fetch(`${API_BASE}/api/settings`);
+  if (!res.ok) throw new Error('Failed to load settings');
+  return res.json();
+}
+
+export async function saveSettings(settings: AppSettings): Promise<AppSettings> {
+  if (isTauri) return await invoke<AppSettings>('save_settings', { settings });
+
+  const res = await fetch(`${API_BASE}/api/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to save settings');
+  }
+  return res.json();
+}
+
+export async function pickFolder(title: string): Promise<string | null> {
+  if (!isTauri) return window.prompt(`${title}: enter an absolute folder path`);
+  const selected = await open({ directory: true, multiple: false, title });
+  return typeof selected === 'string' ? selected : null;
 }
 
 export async function fetchSystemStatus(): Promise<SystemStatus> {
