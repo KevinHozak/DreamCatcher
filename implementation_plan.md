@@ -1,46 +1,53 @@
-# Issue #17 Implementation Plan: Folder Settings
+# Issue #18 Implementation Plan: Indexed Pictures and Videos Inventory
 
-## Decisions
+## Dependency Note
 
-- Use native Tauri folder pickers, with text fields retained for direct path editing.
-- Allow Pictures and Videos destinations to remain unset independently.
+Issue #18 depends on #17. This branch starts from `origin/main` as required by the work workflow. The final implementation should consume the merged settings contract from #17, or be rebased onto that branch if #17 is still under review.
 
 ## Acceptance Criteria Mapping
 
-1. Users can view and edit independent Pictures and Videos destination folders in one settings area.
-2. Existing folder settings remain available and represented consistently.
-3. Invalid, inaccessible, duplicate, or unsafe paths are rejected with actionable feedback.
-4. Settings persist across app restarts and have focused backend/frontend tests.
-5. The contract documents platform and path assumptions for the Tauri desktop runtime.
+1. Configured Pictures and Videos roots can be scanned independently.
+2. Repeated scans do not duplicate records and handle moved or removed files safely.
+3. Statistics come from the canonical inventory and distinguish pictures from videos.
+4. Unsupported, unreadable, and malformed files are reported without aborting the scan.
+5. Tests cover incremental scans, stale records, cancellation, and representative metadata.
 
 ## Current State
 
-- `frontend/src/App.tsx` owns a hard-coded `sourceDir` value and has no settings screen.
-- `frontend/src/services/api.ts` contains the HTTP client boundary for the Python backend.
-- `backend/main.py` currently exposes scan, execute, system-status, and media routes only.
-- `frontend/src-tauri/` is the production desktop boundary, while the Python backend remains the current development/API path.
+- `backend/core/scanner.py` and `frontend/src-tauri/src/scanner.rs` perform filesystem scans but return transient lists only.
+- Existing records include paths, extensions, media type, size, timestamps, sidecars, and GPS where available.
+- Existing scans skip protected directories and support a month filter, but do not persist scan provenance or stale-record state.
+- The frontend currently consumes scan results directly as triage state.
+
+## Proposed Architecture
+
+- Define a canonical media-record schema with a stable identity, canonical path, media type, byte size, timestamps, metadata provenance, scan ID, and availability state.
+- Add a local persistence layer appropriate to the desktop runtime, keeping the canonical inventory separate from thumbnail/search/face-derived caches.
+- Implement independent Pictures and Videos scan jobs with progress, cancellation, skipped-file diagnostics, and last-successful-scan metadata.
+- Reconcile each scan by upserting discovered records, marking missing records stale, and avoiding duplicate rows when a scan repeats.
+- Provide statistics for picture/video counts, total bytes, extensions, date ranges, stale records, skipped files, and scan health.
+- Expose a query/API contract that later library browsing and filters can consume without rescanning the filesystem.
 
 ## Proposed File Changes
 
-- Add a backend settings model and persistence module with explicit `source_dir`, `pictures_dir`, and `videos_dir` values.
-- Add settings read/write routes with shared path validation and actionable error responses.
-- Add frontend API types and settings calls in `frontend/src/services/api.ts`.
-- Add a settings view/component and integrate navigation from the existing cockpit header.
-- Replace the hard-coded ingest path with the persisted source-folder setting while preserving the current scan flow.
-- Add focused Python API tests and frontend type/build validation.
-- Document path validation, persistence location, unset values, and Tauri/runtime assumptions.
+- Add inventory models and persistence under `frontend/src-tauri/src/` for the native runtime.
+- Add matching Python inventory/API modules for development mode.
+- Extend scanner results with stable identity, provenance, and diagnostics without changing existing triage behavior.
+- Add frontend API types and scan-status/statistics state.
+- Add focused Rust and Python tests using temporary media trees, malformed files, repeated scans, removed files, and cancellation.
 
-## Validation Rules
+## Safety and Performance
 
-- Paths must be absolute and syntactically valid for the host platform.
-- Existing paths must be directories and readable; creation of missing destinations should be an explicit later decision.
-- Pictures and Videos destinations must not resolve to the same directory.
-- One configured destination must not contain the other, or vice versa.
-- Settings writes must not move files or alter the filesystem beyond persistence.
+- Never delete user files as part of indexing.
+- Treat unreadable files as diagnostics, not fatal scan errors.
+- Keep canonical paths normalized and avoid following protected/generated directories.
+- Bound memory and UI updates for large libraries; do not require thumbnails during indexing.
+- Make cancellation leave the last completed inventory intact and mark the interrupted run clearly.
 
 ## Verification Plan
 
-- Run backend tests, including invalid paths, duplicate paths, nested paths, persistence, and restart/read-back behavior.
-- Run frontend TypeScript/build checks.
-- Exercise the settings API and UI with valid, unavailable, duplicate, and nested paths.
+- Run Rust inventory tests and existing media tests.
+- Run Python scanner/API tests and an incremental reconciliation test suite.
+- Run frontend TypeScript and lint checks.
+- Validate statistics against a fixture tree containing pictures, videos, sidecars, malformed files, duplicates, and removed files.
 - Run `git diff --check` and inspect the final diff for unrelated changes.

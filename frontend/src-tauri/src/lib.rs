@@ -1,5 +1,6 @@
 mod classifier;
 mod clustering;
+mod inventory;
 mod executor;
 mod media;
 mod scanner;
@@ -287,6 +288,16 @@ async fn rollback_triage(source_dir: String) -> Result<RollbackResult, String> {
     rollback_triage_plan(&src)
 }
 
+#[tauri::command]
+fn scan_inventory(app: AppHandle, root: String, root_kind: String) -> Result<inventory::InventoryScanSummary, String> {
+    inventory::scan(&app, root, root_kind)
+}
+
+#[tauri::command]
+fn get_inventory_stats(app: AppHandle) -> Result<inventory::InventoryStats, String> {
+    inventory::stats(&app)
+}
+
 fn url_decode(input: &str) -> String {
     percent_encoding::percent_decode_str(input)
         .decode_utf8_lossy()
@@ -378,6 +389,8 @@ pub fn run() {
             cluster_media,
             execute_triage,
             rollback_triage,
+            scan_inventory,
+            get_inventory_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
