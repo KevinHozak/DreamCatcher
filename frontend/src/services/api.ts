@@ -347,20 +347,24 @@ export async function clusterMedia(
 export async function executeTriage(
   sourceDir: string,
   decisions: Record<string, any>,
-  action: 'move' | 'copy' = 'move'
+  action: 'move' | 'copy' = 'move',
+  picturesDir?: string | null,
+  videosDir?: string | null
 ): Promise<any> {
   if (isTauri) {
     return await invoke('execute_triage', {
       sourceDir,
       decisions,
       action,
+      picturesDir: picturesDir || null,
+      videosDir: videosDir || null,
     });
   }
 
   const res = await fetch(`${API_BASE}/api/system/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source_dir: sourceDir, decisions, action }),
+    body: JSON.stringify({ source_dir: sourceDir, decisions, action, pictures_dir: picturesDir || null, videos_dir: videosDir || null }),
   });
   if (!res.ok) throw new Error('Execution failed');
   return res.json();

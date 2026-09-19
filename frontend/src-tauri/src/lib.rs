@@ -276,10 +276,12 @@ async fn execute_triage(
     source_dir: String,
     decisions: HashMap<String, DecisionInfo>,
     action: Option<String>,
+    pictures_dir: Option<String>,
+    videos_dir: Option<String>,
 ) -> Result<ExecutionResult, String> {
     let src = PathBuf::from(&source_dir);
     let act = action.unwrap_or_else(|| "move".to_string());
-    execute_triage_plan(&src, decisions, &act)
+    execute_triage_plan(&src, decisions, &act, pictures_dir.map(PathBuf::from), videos_dir.map(PathBuf::from))
 }
 
 #[tauri::command]
