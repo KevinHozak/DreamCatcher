@@ -9,6 +9,8 @@ pub struct AppSettings {
     pub source_dir: String,
     pub pictures_dir: Option<String>,
     pub videos_dir: Option<String>,
+    #[serde(default)]
+    pub people_search_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -17,6 +19,7 @@ impl Default for AppSettings {
             source_dir: DEFAULT_SOURCE_DIR.to_string(),
             pictures_dir: None,
             videos_dir: None,
+            people_search_enabled: false,
         }
     }
 }
@@ -74,6 +77,7 @@ pub fn validate_settings(settings: &AppSettings) -> Result<AppSettings, String> 
         source_dir: source_dir.to_string(),
         pictures_dir,
         videos_dir,
+        people_search_enabled: settings.people_search_enabled,
     })
 }
 
@@ -113,6 +117,7 @@ mod tests {
             source_dir: source.to_string_lossy().to_string(),
             pictures_dir: Some(pictures.to_string_lossy().to_string()),
             videos_dir: None,
+            people_search_enabled: false,
         });
         assert!(result.is_ok());
         let _ = fs::remove_dir_all(root);
@@ -131,6 +136,7 @@ mod tests {
             source_dir: source.to_string_lossy().to_string(),
             pictures_dir: Some(pictures.to_string_lossy().to_string()),
             videos_dir: Some(videos.to_string_lossy().to_string()),
+            people_search_enabled: false,
         });
         assert!(result.unwrap_err().contains("cannot contain one another"));
         let _ = fs::remove_dir_all(root);

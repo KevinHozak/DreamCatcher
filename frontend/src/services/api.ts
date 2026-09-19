@@ -52,6 +52,17 @@ export interface AppSettings {
   source_dir: string;
   pictures_dir: string | null;
   videos_dir: string | null;
+  people_search_enabled: boolean;
+}
+
+export interface PeopleSearchStatus {
+  enabled: boolean;
+  state: 'disabled' | 'not_ready' | 'ready' | 'indexing' | 'failed';
+  message: string;
+  index_exists: boolean;
+  indexed_media: number;
+  reviewed_people: number;
+  last_run: string | null;
 }
 
 export interface InventoryScanSummary {
@@ -223,6 +234,20 @@ export async function saveSettings(settings: AppSettings): Promise<AppSettings> 
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || 'Failed to save settings');
   }
+  return res.json();
+}
+
+export async function fetchPeopleSearchStatus(): Promise<PeopleSearchStatus> {
+  if (isTauri) return await invoke<PeopleSearchStatus>('get_people_search_status');
+  const res = await fetch(`${API_BASE}/api/people-search/status`);
+  if (!res.ok) throw new Error('Failed to load people-search status');
+  return res.json();
+}
+
+export async function deletePeopleSearchIndex(): Promise<{ deleted: boolean }> {
+  if (isTauri) return await invoke<{ deleted: boolean }>('delete_people_search_index');
+  const res = await fetch(`${API_BASE}/api/people-search/index`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete people-search index');
   return res.json();
 }
 
