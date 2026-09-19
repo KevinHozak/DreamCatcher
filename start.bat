@@ -16,11 +16,11 @@ cd /d "%~dp0"
 
 :: 1. Check Ollama
 echo [1/2] Checking local Ollama service...
-curl -s http://127.0.0.1:11434/api/tags >nul 2>&1
+curl -s --max-time 2 http://127.0.0.1:11434/api/tags >nul 2>&1
 if %errorlevel% neq 0 (
     echo     Starting Ollama in background...
     start /B "" "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" serve
-    timeout /t 2 /nobreak >nul
+    timeout /t 3 /nobreak >nul
 ) else (
     echo     Ollama is running.
 )
