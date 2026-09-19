@@ -54,7 +54,7 @@ FINANCIAL_KEYWORDS = {'receipt', 'total', 'tax', 'invoice', 'subtotal', 'usd', '
 MEDICAL_KEYWORDS = {'clinic', 'hospital', 'rx', 'prescription', 'patient', 'doctor', 'insurance', 'health', 'pharmacy', 'dose'}
 EQUIPMENT_KEYWORDS = {'serial', 'model', 'part', 'warning', 'voltage', 'specs', 'filter', 'engine', 'barcode', 'qr'}
 
-VISION_CACHE_FILE = Path("vision_cache.json")
+VISION_CACHE_FILE = Path(__file__).resolve().parent.parent / "vision_cache.json"
 VISION_CACHE: Dict[str, Any] = {}
 
 if VISION_CACHE_FILE.exists():
