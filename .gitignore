@@ -10,6 +10,10 @@ node_modules/
 dist/
 build/
 
+# Rust / Tauri
+target/
+*.exe
+
 # Environment / Local
 .env
 .env.local
