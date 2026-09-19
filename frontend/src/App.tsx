@@ -28,6 +28,7 @@ import { ClusterView } from './components/ClusterView';
 import { ExecutionModal } from './components/ExecutionModal';
 import { SettingsView } from './components/SettingsView';
 import { MediaLibraryView } from './components/MediaLibraryView';
+import { DuplicateReviewView } from './components/DuplicateReviewView';
 
 type Step = 'ingest' | 'clean_sweep' | 'decision_deck' | 'clustering';
 
@@ -41,6 +42,7 @@ export function App() {
   });
   const [showSettings, setShowSettings] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(false);
   const [monthFilter, setMonthFilter] = useState<string>('');
   const [scanStats, setScanStats] = useState<ScanResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -388,6 +390,14 @@ export function App() {
             <FolderOpen className="w-3.5 h-3.5 text-zinc-400" />
             <span className="text-zinc-300 font-medium">Library</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setShowDuplicates(true)}
+            className="flex items-center gap-2 bg-zinc-950 hover:bg-zinc-900 px-3 py-1.5 rounded-xl border border-zinc-800 hover:border-zinc-700 text-xs transition cursor-pointer"
+            title="Review duplicate candidates"
+          >
+            <span className="text-zinc-300 font-medium">Duplicates</span>
+          </button>
         </div>
       </header>
 
@@ -404,6 +414,8 @@ export function App() {
           />
         ) : showLibrary ? (
           <MediaLibraryView onClose={() => setShowLibrary(false)} />
+        ) : showDuplicates ? (
+          <DuplicateReviewView onClose={() => setShowDuplicates(false)} />
         ) : (
           <>
         {rollbackStatus && (
