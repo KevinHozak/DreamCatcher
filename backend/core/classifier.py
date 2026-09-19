@@ -186,18 +186,14 @@ def classify_with_gemini(
     return cat, reason, text
 
 
-def analyze_image(
-    filepath: Path,
-    backend: str = "ollama",
-    ollama_model: str = "moondream",
-    ollama_url: str = "http://127.0.0.1:11434"
-) -> Dict[str, Any]:
+def classify_heuristic(filepath: Path) -> Dict[str, Any]:
     """
-    Main triage analysis for an image:
-    1. Checks cache
-    2. Runs fast local filename/aspect heuristics
-    3. Runs AI Vision if ambiguous or requested
-    Returns classification payload with confidence tier.
+    Fast heuristic triage classification (instant, non-blocking):
+    1. Checks vision cache
+    2. Video files -> OBVIOUS PHOTO
+    3. Filename patterns -> OBVIOUS DOCUMENT
+    4. Aspect ratio -> OBVIOUS DOCUMENT if aspect > 2.5
+    5. Fallback -> MIXED PHOTO (Ambiguous, requires AI/manual inspection)
     """
     cached = lookup_vision_cache(filepath)
     if cached:
@@ -224,14 +220,13 @@ def analyze_image(
     # 1. Obvious Filename Heuristics
     for pat in DOC_FILENAME_PATTERNS:
         if pat.search(filename):
-            res = {
+            return {
                 "category": "DOCUMENT",
                 "tier": "OBVIOUS",
                 "reason": f"Filename matches keyword: {pat.pattern}",
                 "caption": "",
                 "is_cached": False
             }
-            return res
 
     # 2. Aspect Ratio Heuristics (e.g. Scrolling Screenshots)
     try:
@@ -248,6 +243,32 @@ def analyze_image(
                 }
     except Exception:
         pass
+
+    return {
+        "category": "PHOTO",
+        "tier": "MIXED",
+        "reason": "Ambiguous (Awaiting Vision / Manual Triage)",
+        "caption": "",
+        "is_cached": False
+    }
+
+
+def analyze_image(
+    filepath: Path,
+    backend: str = "ollama",
+    ollama_model: str = "moondream",
+    ollama_url: str = "http://127.0.0.1:11434"
+) -> Dict[str, Any]:
+    """
+    Main triage analysis for an image:
+    1. Runs fast local filename/aspect heuristics & cache checks.
+    2. If already OBVIOUS, returns immediately without calling AI.
+    3. If MIXED/ambiguous, runs AI Vision (Moondream or Gemini).
+    Returns classification payload with confidence tier.
+    """
+    fast_res = classify_heuristic(filepath)
+    if fast_res["tier"] == "OBVIOUS":
+        return fast_res
 
     # 3. Vision Pass
     data, mime = get_downscaled_image_bytes(filepath, max_dim=384)

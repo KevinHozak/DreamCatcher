@@ -9,33 +9,40 @@ import {
   Calendar,
   Compass
 } from 'lucide-react';
-import { getThumbnailUrl, getFullFileUrl, classifySingle, type MediaItem } from '../services/api';
+import { getThumbnailUrl, getFullFileUrl, classifySingle, streamClassify, type MediaItem } from '../services/api';
 
 interface Props {
   mixedItems: MediaItem[];
+  backend?: 'ollama' | 'gemini';
   onComplete: (decisions: Record<string, { item: MediaItem; decision: 'DOCUMENT' | 'PHOTO' }>) => void;
   onBack: () => void;
 }
 
-export const DecisionDeckView: React.FC<Props> = ({ mixedItems, onComplete, onBack }) => {
+export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollama', onComplete, onBack }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [decisions, setDecisions] = useState<Record<string, { item: MediaItem; decision: 'DOCUMENT' | 'PHOTO' }>>({});
   const [history, setHistory] = useState<string[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
+  const [isStreamingAi, setIsStreamingAi] = useState(false);
+  const [streamCount, setStreamCount] = useState(0);
+  const [aiCaptions, setAiCaptions] = useState<Record<string, { caption: string; category?: string; reason?: string }>>({});
   const [currentCaption, setCurrentCaption] = useState<string>('');
   const [showFull, setShowFull] = useState(false);
 
   const currentItem = mixedItems[currentIndex];
 
-  // Fetch or set Moondream description for current item
+  // Fetch or set description for current item from stream, cache, or item
   useEffect(() => {
     if (!currentItem) return;
-    if (currentItem.caption) {
+    const streamed = aiCaptions[currentItem.id] || aiCaptions[currentItem.path];
+    if (streamed?.caption) {
+      setCurrentCaption(streamed.caption);
+    } else if (currentItem.caption) {
       setCurrentCaption(currentItem.caption);
     } else {
-      setCurrentCaption(currentItem.reason || 'No description yet');
+      setCurrentCaption(currentItem.reason || 'Visual inspection needed');
     }
-  }, [currentIndex, currentItem]);
+  }, [currentIndex, currentItem, aiCaptions]);
 
   const handleDecision = useCallback(
     (choice: 'DOCUMENT' | 'PHOTO') => {
@@ -70,12 +77,55 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, onComplete, onBa
     if (!currentItem) return;
     setAiLoading(true);
     try {
-      const res = await classifySingle(currentItem.path, 'ollama', 'moondream');
-      setCurrentCaption(res.caption || res.reason);
+      const res = await classifySingle(currentItem.path, backend, 'moondream');
+      const text = res.caption || res.reason;
+      setCurrentCaption(text);
+      setAiCaptions((prev) => ({
+        ...prev,
+        [currentItem.id]: { caption: text, category: res.category, reason: res.reason },
+        [currentItem.path]: { caption: text, category: res.category, reason: res.reason },
+      }));
     } catch {
-      setCurrentCaption('Local Ollama call failed');
+      setCurrentCaption(`${backend === 'gemini' ? 'Gemini' : 'Local Ollama'} call failed`);
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const handleStreamAllAi = async () => {
+    if (isStreamingAi || mixedItems.length === 0) return;
+    setIsStreamingAi(true);
+    setStreamCount(0);
+    try {
+      const unanalyzed = mixedItems.filter((it) => !it.caption && !aiCaptions[it.id]?.caption);
+      const paths = unanalyzed.map((it) => it.path);
+      if (paths.length === 0) {
+        setIsStreamingAi(false);
+        return;
+      }
+      await streamClassify(
+        paths,
+        (data) => {
+          setAiCaptions((prev) => {
+            const next = {
+              ...prev,
+              [data.path]: { caption: data.caption || data.reason, category: data.category, reason: data.reason },
+            };
+            const match = mixedItems.find((it) => it.path === data.path);
+            if (match) {
+              next[match.id] = { caption: data.caption || data.reason, category: data.category, reason: data.reason };
+            }
+            return next;
+          });
+          setStreamCount((c) => c + 1);
+        },
+        backend,
+        'moondream'
+      );
+    } catch (err) {
+      console.error('Streaming AI failed:', err);
+    } finally {
+      setIsStreamingAi(false);
     }
   };
 
@@ -154,18 +204,38 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, onComplete, onBa
           <span className="text-xs text-zinc-400 whitespace-nowrap font-mono">{progressPercent}%</span>
         </div>
 
-        <button
-          onClick={handleUndo}
-          disabled={history.length === 0}
-          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition ${
-            history.length > 0
-              ? 'text-zinc-300 border-zinc-700 hover:bg-zinc-800 cursor-pointer'
-              : 'text-zinc-600 border-zinc-900 cursor-not-allowed'
-          }`}
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Undo (Z)</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleStreamAllAi}
+            disabled={isStreamingAi}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition ${
+              isStreamingAi
+                ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 animate-pulse cursor-wait'
+                : 'text-purple-300 border-purple-500/30 hover:bg-purple-500/10 cursor-pointer'
+            }`}
+            title="Stream AI Vision analysis asynchronously for all ambiguous items"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+            <span>
+              {isStreamingAi
+                ? `Analyzing (${streamCount}/${mixedItems.length})...`
+                : 'Stream All AI'}
+            </span>
+          </button>
+
+          <button
+            onClick={handleUndo}
+            disabled={history.length === 0}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition ${
+              history.length > 0
+                ? 'text-zinc-300 border-zinc-700 hover:bg-zinc-800 cursor-pointer'
+                : 'text-zinc-600 border-zinc-900 cursor-not-allowed'
+            }`}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Undo (Z)</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Focus Viewport */}
@@ -212,15 +282,28 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, onComplete, onBa
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-purple-400 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5" />
-                  Moondream Vision
+                  {backend === 'gemini' ? 'Gemini Vision' : 'Moondream Vision'}
                 </span>
-                <button
-                  onClick={handleAskMoondream}
-                  disabled={aiLoading}
-                  className="text-[10px] text-zinc-400 hover:text-white border border-zinc-800 px-2 py-0.5 rounded transition cursor-pointer"
-                >
-                  {aiLoading ? 'Analyzing...' : 'Re-scan'}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {(aiCaptions[currentItem.id]?.category || currentItem.category) && (
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                        (aiCaptions[currentItem.id]?.category || currentItem.category) === 'DOCUMENT'
+                          ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                          : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                      }`}
+                    >
+                      {aiCaptions[currentItem.id]?.category || currentItem.category}
+                    </span>
+                  )}
+                  <button
+                    onClick={handleAskMoondream}
+                    disabled={aiLoading}
+                    className="text-[10px] text-zinc-400 hover:text-white border border-zinc-800 px-2 py-0.5 rounded transition cursor-pointer"
+                  >
+                    {aiLoading ? 'Analyzing...' : 'Re-scan'}
+                  </button>
+                </div>
               </div>
               <p className="text-xs text-zinc-300 leading-relaxed italic">
                 "{currentCaption || 'Analyzing scene...'}"

@@ -8,7 +8,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 from PIL import Image, ExifTags
 
 try:
@@ -181,20 +181,38 @@ def extract_gps_coordinates(filepath: Path, sidecar_path: Optional[Path]) -> Opt
     return None
 
 
-def scan_directory(source_dir: Path) -> List[Dict[str, Any]]:
-    """Scans source_dir for all media files and compiles basic file records."""
+def scan_directory(
+    source_dir: Path,
+    month_filter: Optional[str] = None,
+    return_stats: bool = False
+) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], int]]:
+    """
+    Scans source_dir for all media files and compiles basic file records.
+    If month_filter is specified (e.g. '2024-11'), restricts results to items
+    matching that calendar month.
+    """
     source_dir = source_dir.resolve()
     protected = {'pictures', 'videos', 'pictures_doc', '.git', '_sidecars_archive', 'node_modules'}
     
+    target_month = month_filter.strip().replace('_', '-') if month_filter and month_filter.strip() else None
+    
     records = []
+    total_discovered = 0
+
     for root, dirs, files in os.walk(source_dir):
         dirs[:] = [d for d in dirs if d.lower() not in protected]
         for f in files:
             p = Path(root) / f
             ext = p.suffix.lower()
             if ext in MEDIA_EXTS:
+                total_discovered += 1
                 sidecar = find_json_sidecar(p)
                 ts, is_undated = extract_timestamp(p, sidecar)
+                month_str = ts.strftime('%Y-%m')
+
+                if target_month and month_str != target_month:
+                    continue
+
                 gps = extract_gps_coordinates(p, sidecar)
                 
                 try:
@@ -211,7 +229,7 @@ def scan_directory(source_dir: Path) -> List[Dict[str, Any]]:
                     "size": size,
                     "timestamp": ts.isoformat(),
                     "date_str": ts.strftime('%Y-%m-%d'),
-                    "month_str": ts.strftime('%Y-%m'),
+                    "month_str": month_str,
                     "is_undated": is_undated,
                     "has_sidecar": sidecar is not None,
                     "sidecar_path": str(sidecar) if sidecar else None,
@@ -220,4 +238,6 @@ def scan_directory(source_dir: Path) -> List[Dict[str, Any]]:
                 })
 
     records.sort(key=lambda r: r['timestamp'])
+    if return_stats:
+        return records, total_discovered
     return records

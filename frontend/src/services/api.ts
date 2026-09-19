@@ -47,17 +47,23 @@ export async function fetchSystemStatus(): Promise<SystemStatus> {
   return res.json();
 }
 
-export async function scanFolder(
-  sourceDir: string,
-  backend: 'ollama' | 'gemini' = 'ollama',
-  ollamaModel: string = 'moondream'
-): Promise<{
+export interface ScanResult {
   source_dir: string;
+  month_filter: string | null;
+  total_discovered: number;
   total_scanned: number;
   obvious_docs: MediaItem[];
   obvious_photos: MediaItem[];
   mixed_items: MediaItem[];
-}> {
+}
+
+export async function scanFolder(
+  sourceDir: string,
+  backend: 'ollama' | 'gemini' = 'ollama',
+  ollamaModel: string = 'moondream',
+  monthFilter?: string | null,
+  runAiOnAmbiguous: boolean = false
+): Promise<ScanResult> {
   const res = await fetch(`${API_BASE}/api/scan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -65,6 +71,8 @@ export async function scanFolder(
       source_dir: sourceDir,
       backend,
       ollama_model: ollamaModel,
+      month_filter: monthFilter || null,
+      run_ai_on_ambiguous: runAiOnAmbiguous,
     }),
   });
   if (!res.ok) {
@@ -86,6 +94,66 @@ export async function classifySingle(
   });
   if (!res.ok) throw new Error('Classification failed');
   return res.json();
+}
+
+export async function classifyBatch(
+  paths: string[],
+  backend: 'ollama' | 'gemini' = 'ollama',
+  ollamaModel: string = 'moondream'
+): Promise<{ results: Array<{ path: string; category: string; tier: string; reason: string; caption: string }> }> {
+  const res = await fetch(`${API_BASE}/api/scan/classify_batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paths, backend, ollama_model: ollamaModel }),
+  });
+  if (!res.ok) throw new Error('Batch classification failed');
+  return res.json();
+}
+
+export async function streamClassify(
+  paths: string[],
+  onItem: (item: { path: string; category: string; tier: string; reason: string; caption: string }) => void,
+  backend: 'ollama' | 'gemini' = 'ollama',
+  ollamaModel: string = 'moondream',
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/scan/classify_stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paths, backend, ollama_model: ollamaModel }),
+    signal,
+  });
+  if (!res.ok || !res.body) throw new Error('Streaming classification failed');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (line.trim()) {
+        try {
+          const data = JSON.parse(line);
+          onItem(data);
+        } catch (e) {
+          console.error('Error parsing stream line:', e);
+        }
+      }
+    }
+  }
+  if (buffer.trim()) {
+    try {
+      const data = JSON.parse(buffer);
+      onItem(data);
+    } catch (e) {
+      console.error('Error parsing final stream chunk:', e);
+    }
+  }
 }
 
 export async function clusterMedia(items: MediaItem[]): Promise<{ clusters: Cluster[] }> {

@@ -2,12 +2,16 @@ import { useState, useEffect } from 'react';
 import {
   FolderOpen,
   Play,
-  RefreshCw
+  RefreshCw,
+  Calendar,
+  Filter,
+  X
 } from 'lucide-react';
 import {
   type MediaItem,
   type Cluster,
   type SystemStatus,
+  type ScanResult,
   fetchSystemStatus,
   scanFolder,
   clusterMedia
@@ -22,6 +26,8 @@ type Step = 'ingest' | 'clean_sweep' | 'decision_deck' | 'clustering';
 export function App() {
   const [step, setStep] = useState<Step>('ingest');
   const [sourceDir, setSourceDir] = useState<string>('C:\\Transfer\\Takeout\\K Photos\\2024');
+  const [monthFilter, setMonthFilter] = useState<string>('');
+  const [scanStats, setScanStats] = useState<ScanResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +56,14 @@ export function App() {
     setIsScanning(true);
     setError(null);
     try {
-      const res = await scanFolder(sourceDir, backend, 'moondream');
+      const res = await scanFolder(
+        sourceDir,
+        backend,
+        'moondream',
+        monthFilter.trim() || undefined,
+        false
+      );
+      setScanStats(res);
       setObviousDocs(res.obvious_docs);
       setObviousPhotos(res.obvious_photos);
       setMixedItems(res.mixed_items);
@@ -60,7 +73,7 @@ export function App() {
       } else if (res.mixed_items.length > 0) {
         setStep('decision_deck');
       } else {
-        setError('No unprocessed media items found in this directory.');
+        setError('No unprocessed media items found matching this filter.');
       }
     } catch (err: any) {
       setError(err.message || 'Scan failed');
@@ -303,6 +316,80 @@ export function App() {
                 </button>
               </div>
 
+              {/* Month Filter Section */}
+              <div className="space-y-1.5 text-left border-t border-zinc-800/80 pt-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-zinc-400 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Month Filter (Optional YYYY-MM)</span>
+                  </label>
+                  {monthFilter && (
+                    <button
+                      onClick={() => setMonthFilter('')}
+                      className="text-[11px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                      Clear Filter
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-xl p-2 focus-within:border-cyan-500 transition">
+                  <Filter className="w-4 h-4 text-zinc-500 shrink-0 ml-1" />
+                  <input
+                    type="text"
+                    value={monthFilter}
+                    onChange={(e) => setMonthFilter(e.target.value)}
+                    placeholder="e.g. 2024-11 (Leave empty for all months)"
+                    className="bg-transparent w-full text-sm text-white focus:outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-2 text-[11px] text-zinc-400 pt-0.5">
+                  <span>Presets:</span>
+                  <button
+                    onClick={() => setMonthFilter('')}
+                    className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                      !monthFilter ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+                    }`}
+                  >
+                    All Months
+                  </button>
+                  <button
+                    onClick={() => setMonthFilter('2024-11')}
+                    className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                      monthFilter === '2024-11' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+                    }`}
+                  >
+                    2024-11
+                  </button>
+                  <button
+                    onClick={() => setMonthFilter('2024-12')}
+                    className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                      monthFilter === '2024-12' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+                    }`}
+                  >
+                    2024-12
+                  </button>
+                </div>
+              </div>
+
+              {/* Scanned Count Indicator */}
+              {scanStats && (
+                <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800 text-xs text-zinc-300 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span>
+                      Scanned: <strong>{scanStats.total_scanned}</strong> items
+                      {scanStats.month_filter ? ` for ${scanStats.month_filter}` : ' across all months'}
+                    </span>
+                  </div>
+                  {scanStats.total_discovered > scanStats.total_scanned && (
+                    <span className="text-zinc-500 text-[11px]">
+                      ({scanStats.total_discovered} total files in folder)
+                    </span>
+                  )}
+                </div>
+              )}
+
               <button
                 onClick={handleStartScan}
                 disabled={isScanning || !sourceDir}
@@ -316,7 +403,9 @@ export function App() {
                 ) : (
                   <>
                     <Play className="w-4 h-4" />
-                    <span>Start Photo Triage</span>
+                    <span>
+                      {monthFilter ? `Start Triage for ${monthFilter}` : 'Start Photo Triage'}
+                    </span>
                   </>
                 )}
               </button>
@@ -337,6 +426,7 @@ export function App() {
         {step === 'decision_deck' && (
           <DecisionDeckView
             mixedItems={mixedItems}
+            backend={backend}
             onComplete={handleDecisionDeckComplete}
             onBack={() => setStep('clean_sweep')}
           />
