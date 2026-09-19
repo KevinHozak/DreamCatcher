@@ -103,7 +103,15 @@ def get_thumbnail(path: str = Query(...), max_dim: int = Query(320)):
 
     try:
         with Image.open(file_path) as img:
-            img = img.convert('RGB')
+            if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+                bg = Image.new('RGB', img.size, (24, 24, 27))
+                if img.mode != 'RGBA':
+                    img = img.convert('RGBA')
+                bg.paste(img, mask=img.split()[3])
+                img = bg
+            else:
+                img = img.convert('RGB')
+
             w, h = img.size
             if max(w, h) > max_dim:
                 scale = max_dim / max(w, h)

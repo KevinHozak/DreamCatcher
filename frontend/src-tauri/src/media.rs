@@ -104,6 +104,43 @@ pub fn generate_video_thumbnail_svg(filename: &str, max_dim: u32) -> Vec<u8> {
     svg.into_bytes()
 }
 
+pub fn decode_heic(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    let output = heic::DecoderConfig::new()
+        .decode(bytes, heic::PixelLayout::Rgba8)
+        .map_err(|e| format!("Failed to decode HEIC: {:?}", e))?;
+    let img_buf = image::RgbaImage::from_raw(output.width as u32, output.height as u32, output.data)
+        .ok_or_else(|| "Failed to construct RGBA image from HEIC buffer".to_string())?;
+    Ok(image::DynamicImage::ImageRgba8(img_buf))
+}
+
+pub fn to_rgb_with_background(img: &image::DynamicImage) -> image::RgbImage {
+    match img {
+        image::DynamicImage::ImageRgba8(rgba) => {
+            let mut rgb = image::RgbImage::new(rgba.width(), rgba.height());
+            for (x, y, pixel) in rgba.enumerate_pixels() {
+                let [r, g, b, a] = pixel.0;
+                if a == 255 {
+                    rgb.put_pixel(x, y, image::Rgb([r, g, b]));
+                } else if a == 0 {
+                    // Transparent pixels blended onto theme dark neutral background #18181b (24, 24, 27)
+                    rgb.put_pixel(x, y, image::Rgb([24, 24, 27]));
+                } else {
+                    let alpha = a as f32 / 255.0;
+                    let bg_r = 24.0;
+                    let bg_g = 24.0;
+                    let bg_b = 27.0;
+                    let comp_r = (r as f32 * alpha + bg_r * (1.0 - alpha)).round() as u8;
+                    let comp_g = (g as f32 * alpha + bg_g * (1.0 - alpha)).round() as u8;
+                    let comp_b = (b as f32 * alpha + bg_b * (1.0 - alpha)).round() as u8;
+                    rgb.put_pixel(x, y, image::Rgb([comp_r, comp_g, comp_b]));
+                }
+            }
+            rgb
+        }
+        _ => img.to_rgb8(),
+    }
+}
+
 pub fn render_thumbnail(filepath: &Path, max_dim: u32) -> Result<(Vec<u8>, String), String> {
     let path_str = filepath.to_string_lossy().to_string();
     let cache_key = format!("{}_{}", path_str, max_dim);
@@ -112,8 +149,8 @@ pub fn render_thumbnail(filepath: &Path, max_dim: u32) -> Result<(Vec<u8>, Strin
         return Ok(cached);
     }
 
-    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if is_video_ext(ext) {
+    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    if is_video_ext(&ext) {
         let filename = filepath.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let svg = generate_video_thumbnail_svg(filename, max_dim);
         let mime = "image/svg+xml".to_string();
@@ -121,7 +158,13 @@ pub fn render_thumbnail(filepath: &Path, max_dim: u32) -> Result<(Vec<u8>, Strin
         return Ok((svg, mime));
     }
 
-    let img = image::open(filepath).map_err(|e| format!("Failed to open image: {}", e))?;
+    let img = if ext == "heic" || ext == "heif" {
+        let bytes = fs::read(filepath).map_err(|e| format!("Failed to read HEIC file: {}", e))?;
+        decode_heic(&bytes)?
+    } else {
+        image::open(filepath).map_err(|e| format!("Failed to open image: {}", e))?
+    };
+
     let (w, h) = (img.width(), img.height());
 
     let resized = if w > max_dim || h > max_dim {
@@ -133,8 +176,10 @@ pub fn render_thumbnail(filepath: &Path, max_dim: u32) -> Result<(Vec<u8>, Strin
         img
     };
 
+    let rgb_img = to_rgb_with_background(&resized);
+
     let mut buf = Cursor::new(Vec::new());
-    resized
+    rgb_img
         .write_to(&mut buf, image::ImageFormat::Jpeg)
         .map_err(|e| format!("Failed to encode JPEG thumbnail: {}", e))?;
 
@@ -145,8 +190,19 @@ pub fn render_thumbnail(filepath: &Path, max_dim: u32) -> Result<(Vec<u8>, Strin
 }
 
 pub fn read_full_media(filepath: &Path) -> Result<(Vec<u8>, String), String> {
-    let bytes = fs::read(filepath).map_err(|e| format!("Failed to read media: {}", e))?;
     let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    if ext == "heic" || ext == "heif" {
+        let bytes = fs::read(filepath).map_err(|e| format!("Failed to read HEIC file: {}", e))?;
+        let img = decode_heic(&bytes)?;
+        let rgb_img = to_rgb_with_background(&img);
+        let mut buf = Cursor::new(Vec::new());
+        rgb_img
+            .write_to(&mut buf, image::ImageFormat::Jpeg)
+            .map_err(|e| format!("Failed to encode full HEIC as JPEG: {}", e))?;
+        return Ok((buf.into_inner(), "image/jpeg".to_string()));
+    }
+
+    let bytes = fs::read(filepath).map_err(|e| format!("Failed to read media: {}", e))?;
     let mime = match ext.as_str() {
         "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
@@ -158,4 +214,93 @@ pub fn read_full_media(filepath: &Path) -> Result<(Vec<u8>, String), String> {
         _ => "application/octet-stream",
     };
     Ok((bytes, mime.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_png_rgba_thumbnail_rendering() {
+        let temp_dir = std::env::temp_dir();
+        let png_path = temp_dir.join(format!(
+            "test_thumb_{}.png",
+            std::time::SystemTime::now().elapsed().unwrap().as_nanos()
+        ));
+
+        // Create a 50x50 transparent PNG
+        let mut rgba = image::RgbaImage::new(50, 50);
+        for (x, _y, p) in rgba.enumerate_pixels_mut() {
+            if x < 25 {
+                *p = image::Rgba([255, 0, 0, 128]); // Semi-transparent red
+            } else {
+                *p = image::Rgba([0, 255, 0, 255]); // Opaque green
+            }
+        }
+        rgba.save(&png_path).expect("Failed to save test PNG");
+
+        let result = render_thumbnail(&png_path, 32);
+        let _ = fs::remove_file(&png_path);
+
+        assert!(
+            result.is_ok(),
+            "render_thumbnail failed for RGBA PNG: {:?}",
+            result.err()
+        );
+        let (bytes, mime) = result.unwrap();
+        assert_eq!(mime, "image/jpeg");
+        assert!(!bytes.is_empty());
+
+        let decoded =
+            image::load_from_memory(&bytes).expect("Decoded thumbnail is not a valid JPEG");
+        assert!(decoded.width() <= 32);
+        assert!(decoded.height() <= 32);
+    }
+
+    #[test]
+    fn test_heic_thumbnail_and_full_rendering() {
+        let fixture_path = Path::new("tests/fixtures/sample.heic");
+        let target_path = if fixture_path.exists() {
+            fixture_path
+        } else {
+            Path::new("frontend/src-tauri/tests/fixtures/sample.heic")
+        };
+
+        if !target_path.exists() {
+            return;
+        }
+
+        let result = render_thumbnail(target_path, 32);
+        assert!(
+            result.is_ok(),
+            "render_thumbnail failed for HEIC: {:?}",
+            result.err()
+        );
+        let (bytes, mime) = result.unwrap();
+        assert_eq!(mime, "image/jpeg");
+        assert!(!bytes.is_empty());
+
+        let full_result = read_full_media(target_path);
+        assert!(
+            full_result.is_ok(),
+            "read_full_media failed for HEIC: {:?}",
+            full_result.err()
+        );
+        let (full_bytes, full_mime) = full_result.unwrap();
+        assert_eq!(full_mime, "image/jpeg");
+        assert!(!full_bytes.is_empty());
+    }
+
+    #[test]
+    fn test_to_rgb_with_background_transparency() {
+        let mut rgba = image::RgbaImage::new(2, 2);
+        rgba.put_pixel(0, 0, image::Rgba([100, 150, 200, 255])); // Opaque
+        rgba.put_pixel(1, 1, image::Rgba([0, 0, 0, 0])); // Fully transparent
+
+        let dynamic = image::DynamicImage::ImageRgba8(rgba);
+        let rgb = to_rgb_with_background(&dynamic);
+
+        assert_eq!(rgb.get_pixel(0, 0).0, [100, 150, 200]);
+        assert_eq!(rgb.get_pixel(1, 1).0, [24, 24, 27]); // Theme dark neutral
+    }
 }

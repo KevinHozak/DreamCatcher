@@ -154,6 +154,34 @@ def test_api_thumbnail_cached_route():
         assert res2.content == res1.content
 
 
+def test_api_thumbnail_png_rgba():
+    client = TestClient(app)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_file = Path(tmpdir) / "test_transparent.png"
+        from PIL import Image
+        img = Image.new("RGBA", (20, 20), color=(255, 0, 0, 128))
+        img.save(test_file, "PNG")
+
+        res = client.get(f"/api/media/thumbnail?path={test_file}")
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "image/jpeg"
+        assert len(res.content) > 0
+
+
+def test_api_thumbnail_heic():
+    client = TestClient(app)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_file = Path(tmpdir) / "test_photo.heic"
+        from PIL import Image
+        img = Image.new("RGB", (30, 30), color="green")
+        img.save(test_file, "HEIF")
+
+        res = client.get(f"/api/media/thumbnail?path={test_file}")
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "image/jpeg"
+        assert len(res.content) > 0
+
+
 if __name__ == "__main__":
     test_thumbnail_lru_eviction()
     print("test_thumbnail_lru_eviction passed!")
@@ -161,4 +189,8 @@ if __name__ == "__main__":
     print("test_execute_and_rollback_trash_and_skip passed!")
     test_api_thumbnail_cached_route()
     print("test_api_thumbnail_cached_route passed!")
+    test_api_thumbnail_png_rgba()
+    print("test_api_thumbnail_png_rgba passed!")
+    test_api_thumbnail_heic()
+    print("test_api_thumbnail_heic passed!")
 

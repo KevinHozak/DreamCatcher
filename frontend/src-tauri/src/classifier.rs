@@ -98,7 +98,13 @@ pub fn put_cache(filepath: &Path, entry: VisionCacheEntry) {
 }
 
 pub fn get_downscaled_image_bytes(filepath: &Path, max_dim: u32) -> Option<Vec<u8>> {
-    let img = image::open(filepath).ok()?;
+    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let img = if ext == "heic" || ext == "heif" {
+        let bytes = fs::read(filepath).ok()?;
+        crate::media::decode_heic(&bytes).ok()?
+    } else {
+        image::open(filepath).ok()?
+    };
     let (w, h) = (img.width(), img.height());
 
     let resized = if w > max_dim || h > max_dim {
@@ -110,8 +116,9 @@ pub fn get_downscaled_image_bytes(filepath: &Path, max_dim: u32) -> Option<Vec<u
         img
     };
 
+    let rgb_img = crate::media::to_rgb_with_background(&resized);
     let mut buf = Cursor::new(Vec::new());
-    resized
+    rgb_img
         .write_to(&mut buf, image::ImageFormat::Jpeg)
         .ok()?;
     Some(buf.into_inner())

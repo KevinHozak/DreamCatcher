@@ -134,6 +134,10 @@ export const ClusterView: React.FC<Props> = ({ clusters, onCommit, onBack }) => 
                       alt={it.name}
                       className="w-full h-full object-cover"
                       loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.style.opacity = '0.3';
+                      }}
                     />
                   </div>
                 ))}
