@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "DreamCatcher - Local AI Photo Triage Cockpit"
 authors = ["Kevin Hozak"]
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.89"
 
 [lib]
 name = "dreamcatcher_lib"
@@ -21,6 +21,7 @@ tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "tiff", "gif", "bmp"] }
+heic = { version = "0.1.6", default-features = false, features = ["std"] }
 exif = { package = "kamadak-exif", version = "0.6" }
 walkdir = "2.5"
 chrono = { version = "0.4", features = ["serde"] }

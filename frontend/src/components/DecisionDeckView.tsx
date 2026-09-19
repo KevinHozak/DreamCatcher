@@ -31,8 +31,10 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollam
   const [streamCount, setStreamCount] = useState(0);
   const [aiCaptions, setAiCaptions] = useState<Record<string, { caption: string; category?: string; reason?: string }>>({});
   const [showFull, setShowFull] = useState(false);
+  const [failedImgIds, setFailedImgIds] = useState<Set<string>>(new Set());
 
   const currentItem = mixedItems[currentIndex];
+  const isImgError = currentItem ? failedImgIds.has(currentItem.id) : false;
 
   // Derive active caption directly during render (avoids set-state-in-effect React warning)
   const activeCaption = currentItem
@@ -249,11 +251,24 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollam
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 max-h-[64vh]">
         {/* Large Media Display */}
         <div className="lg:col-span-8 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl flex items-center justify-center p-4 relative overflow-hidden group">
-          <img
-            src={getThumbnailUrl(currentItem.path, 1024)}
-            alt={currentItem.name}
-            className="max-h-[58vh] max-w-full object-contain rounded-lg shadow-2xl transition duration-200"
-          />
+          {isImgError ? (
+            <div className="flex flex-col items-center justify-center p-8 text-zinc-500">
+              <ImageIcon className="w-16 h-16 mb-2 opacity-40 text-zinc-400" />
+              <span className="text-sm font-medium text-zinc-300">{currentItem.name}</span>
+              <span className="text-xs text-zinc-500 mt-1">Preview could not be loaded</span>
+            </div>
+          ) : (
+            <img
+              src={getThumbnailUrl(currentItem.path, 1024)}
+              alt={currentItem.name}
+              onError={() => {
+                if (currentItem) {
+                  setFailedImgIds((prev) => new Set(prev).add(currentItem.id));
+                }
+              }}
+              className="max-h-[58vh] max-w-full object-contain rounded-lg shadow-2xl transition duration-200"
+            />
+          )}
 
           <button
             onClick={() => setShowFull(!showFull)}

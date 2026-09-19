@@ -178,6 +178,10 @@ export const CleanSweepView: React.FC<Props> = ({ obviousDocs, obviousPhotos, on
                   src={getThumbnailUrl(item.path, 240)}
                   alt={item.name}
                   loading="lazy"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.style.opacity = '0.3';
+                  }}
                   className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
                 />
 
