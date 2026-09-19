@@ -27,3 +27,9 @@ DreamCatcher eliminates the friction of organizing massive photo archives (like 
    .\start.bat
    ```
 3. Open `http://localhost:5173` in your browser.
+
+---
+
+## 🗺️ Project Tracking
+
+Concrete implementation tasks and phased epics are tracked on the [DreamCatcher Dev Project Board](https://github.com/KevinHozak/DreamCatcher/projects).
