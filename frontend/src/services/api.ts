@@ -54,6 +54,47 @@ export interface AppSettings {
   videos_dir: string | null;
 }
 
+export interface InventoryScanSummary {
+  scan_id: string;
+  root_kind: 'pictures' | 'videos';
+  root_path: string;
+  status: string;
+  discovered: number;
+  indexed: number;
+  skipped: number;
+  completed_at: string;
+}
+
+export interface InventoryStats {
+  pictures_count: number;
+  pictures_bytes: number;
+  videos_count: number;
+  videos_bytes: number;
+  stale_count: number;
+  last_scan: InventoryScanSummary | null;
+}
+
+export async function scanInventory(root: string, rootKind: 'pictures' | 'videos'): Promise<InventoryScanSummary> {
+  if (isTauri) return await invoke<InventoryScanSummary>('scan_inventory', { root, rootKind });
+  const res = await fetch(`${API_BASE}/api/inventory/scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, root_kind: rootKind }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Inventory scan failed');
+  }
+  return res.json();
+}
+
+export async function fetchInventoryStats(): Promise<InventoryStats> {
+  if (isTauri) return await invoke<InventoryStats>('get_inventory_stats');
+  const res = await fetch(`${API_BASE}/api/inventory/stats`);
+  if (!res.ok) throw new Error('Failed to load inventory statistics');
+  return res.json();
+}
+
 export async function fetchSettings(): Promise<AppSettings> {
   if (isTauri) return await invoke<AppSettings>('get_settings');
 
