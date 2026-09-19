@@ -5,6 +5,7 @@ mod executor;
 mod media;
 mod scanner;
 mod settings;
+mod people_search;
 
 use classifier::{analyze_image, classify_heuristic, ClassificationResult};
 use clustering::{cluster_items, Cluster};
@@ -35,6 +36,17 @@ fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
     settings::save(&settings_path(&app)?, &settings)
+}
+
+#[tauri::command]
+fn get_people_search_status(app: AppHandle) -> Result<people_search::PeopleSearchStatus, String> {
+    let settings = settings::load(&settings_path(&app)?)?;
+    people_search::status(&app, settings.people_search_enabled)
+}
+
+#[tauri::command]
+fn delete_people_search_index(app: AppHandle) -> Result<serde_json::Value, String> {
+    people_search::delete_index(&app)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -389,6 +401,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
+            get_people_search_status,
+            delete_people_search_index,
             get_system_status,
             scan_folder,
             classify_single,

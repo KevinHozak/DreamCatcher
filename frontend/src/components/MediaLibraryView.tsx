@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, FileImage, FolderOpen, Search, X } from 'lucide-react';
-import { fetchInventoryStats, queryInventory, type InventoryItem, type InventoryPage, type InventoryStats } from '../services/api';
+import { deletePeopleSearchIndex, fetchInventoryStats, fetchPeopleSearchStatus, queryInventory, type InventoryItem, type InventoryPage, type InventoryStats, type PeopleSearchStatus } from '../services/api';
 
 interface Props {
   onClose: () => void;
@@ -28,6 +28,7 @@ export function MediaLibraryView({ onClose }: Props) {
   const [state, setState] = useState<'available' | 'stale'>('available');
   const [page, setPage] = useState<InventoryPage | null>(null);
   const [stats, setStats] = useState<InventoryStats | null>(null);
+  const [peopleSearch, setPeopleSearch] = useState<PeopleSearchStatus | null>(null);
   const [selected, setSelected] = useState<InventoryItem | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -35,7 +36,14 @@ export function MediaLibraryView({ onClose }: Props) {
 
   useEffect(() => {
     fetchInventoryStats().then(setStats).catch(() => undefined);
+    fetchPeopleSearchStatus().then(setPeopleSearch).catch(() => undefined);
   }, []);
+
+  const handleDeletePeopleIndex = async () => {
+    if (!peopleSearch?.index_exists || !window.confirm('Delete the derived people-search index? Media files and the canonical inventory will not be changed.')) return;
+    await deletePeopleSearchIndex();
+    setPeopleSearch((current) => current ? { ...current, state: current.enabled ? 'not_ready' : 'disabled', index_exists: false, indexed_media: 0, reviewed_people: 0, last_run: null } : current);
+  };
 
   useEffect(() => {
     queryInventory({
@@ -81,6 +89,17 @@ export function MediaLibraryView({ onClose }: Props) {
           <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-4"><p className="text-xs text-zinc-500">Videos</p><p className="text-xl font-bold text-purple-400">{stats.videos_count.toLocaleString()}</p><p className="text-xs text-zinc-500">{formatBytes(stats.videos_bytes)}</p></div>
           <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-4"><p className="text-xs text-zinc-500">Stale records</p><p className="text-xl font-bold text-amber-400">{stats.stale_count.toLocaleString()}</p><p className="text-xs text-zinc-500">Awaiting a successful rescan</p></div>
           <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-4"><p className="text-xs text-zinc-500">Last scan</p><p className="text-xl font-bold text-emerald-400">{stats.last_scan?.status || 'Not scanned'}</p><p className="text-xs text-zinc-500 truncate">{stats.last_scan?.completed_at || 'No scan recorded'}</p></div>
+        </div>
+      )}
+
+      {peopleSearch && (
+        <div className="flex flex-wrap items-center gap-3 bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
+          <div className="flex-1 min-w-60">
+            <p className="text-xs uppercase tracking-widest text-purple-400 font-semibold">People search</p>
+            <p className="text-sm text-zinc-200 mt-1">{peopleSearch.message}</p>
+            <p className="text-xs text-zinc-500 mt-1">State: {peopleSearch.state} · {peopleSearch.reviewed_people} reviewed people · {peopleSearch.indexed_media} indexed media</p>
+          </div>
+          {peopleSearch.index_exists && <button type="button" onClick={handleDeletePeopleIndex} className="px-3 py-2 rounded-xl border border-rose-500/30 text-xs text-rose-300 hover:bg-rose-500/10 transition">Delete derived index</button>}
         </div>
       )}
 

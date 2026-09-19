@@ -38,6 +38,7 @@ export function App() {
     source_dir: 'C:\\Transfer\\Takeout\\K Photos\\2024',
     pictures_dir: null,
     videos_dir: null,
+    people_search_enabled: false,
   });
   const [showSettings, setShowSettings] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);

@@ -100,6 +100,21 @@ export function SettingsView({ settings, onSaved, onClose }: SettingsViewProps) 
         {folderField('pictures_dir', 'Pictures destination', 'Optional destination for picture albums.', true)}
         {folderField('videos_dir', 'Videos destination', 'Optional destination for video albums.', true)}
         <p className="text-xs text-zinc-500">Destinations must already exist, be readable, and must not overlap. Saving settings never moves files.</p>
+        <div className="border-t border-zinc-800 pt-5">
+          <div className="flex items-start gap-3">
+            <input
+              id="people_search_enabled"
+              type="checkbox"
+              checked={draft.people_search_enabled}
+              onChange={(event) => setDraft((current) => ({ ...current, people_search_enabled: event.target.checked }))}
+              className="mt-1 h-4 w-4 accent-cyan-500"
+            />
+            <div>
+              <label htmlFor="people_search_enabled" className="text-sm font-semibold text-zinc-200">Enable local people search (experimental)</label>
+              <p className="text-xs text-zinc-500 mt-1">Face processing is off by default. Enabling this records your choice, but indexing stays unavailable until a vetted local runtime is configured. No media leaves this computer.</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {error && <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-sm text-rose-300">{error}</div>}

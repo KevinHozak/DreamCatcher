@@ -15,6 +15,7 @@ class AppSettings(BaseModel):
     source_dir: str = DEFAULT_SOURCE_DIR
     pictures_dir: Optional[str] = None
     videos_dir: Optional[str] = None
+    people_search_enabled: bool = False
 
     @field_validator("source_dir")
     @classmethod
@@ -74,6 +75,7 @@ def validate_settings(settings: AppSettings) -> AppSettings:
         source_dir=source_dir,
         pictures_dir=pictures_dir,
         videos_dir=videos_dir,
+        people_search_enabled=settings.people_search_enabled,
     )
 
 
