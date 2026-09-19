@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle, AlertTriangle, Play, RefreshCw, X, HardDrive } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Play, RefreshCw, X, HardDrive, Trash2, SkipForward } from 'lucide-react';
 import { executeTriage } from '../services/api';
 
 interface Props {
@@ -24,7 +24,9 @@ export const ExecutionModal: React.FC<Props> = ({
   const docCount = decisionList.filter((d: any) => d.category === 'DOCUMENT').length;
   const photoCount = decisionList.filter((d: any) => d.category === 'PHOTO' && !d.is_video).length;
   const videoCount = decisionList.filter((d: any) => d.category === 'PHOTO' && d.is_video).length;
-  const sidecarCount = decisionList.filter((d: any) => d.has_sidecar).length;
+  const trashCount = decisionList.filter((d: any) => d.category === 'TRASH').length;
+  const skipCount = decisionList.filter((d: any) => d.category === 'SKIP').length;
+  const sidecarCount = decisionList.filter((d: any) => d.has_sidecar && d.category !== 'SKIP').length;
 
   const handleRunExecution = async () => {
     setIsExecuting(true);
@@ -83,6 +85,28 @@ export const ExecutionModal: React.FC<Props> = ({
             <div className="text-lg font-bold text-amber-400">{docCount} files</div>
             <div className="text-[11px] text-zinc-400">→ Pictures_Doc/ (Monthly)</div>
           </div>
+
+          {trashCount > 0 && (
+            <div className="bg-zinc-950 p-3.5 rounded-xl border border-rose-950/60">
+              <div className="text-xs text-rose-400/80 font-semibold flex items-center gap-1">
+                <Trash2 className="w-3 h-3" />
+                <span>Utility Trash</span>
+              </div>
+              <div className="text-lg font-bold text-rose-400">{trashCount} files</div>
+              <div className="text-[11px] text-zinc-400">→ Trash/ (Safely isolated)</div>
+            </div>
+          )}
+
+          {skipCount > 0 && (
+            <div className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800">
+              <div className="text-xs text-zinc-400 font-semibold flex items-center gap-1">
+                <SkipForward className="w-3 h-3" />
+                <span>Skipped / In Place</span>
+              </div>
+              <div className="text-lg font-bold text-zinc-300">{skipCount} files</div>
+              <div className="text-[11px] text-zinc-400">Left untouched in folder</div>
+            </div>
+          )}
 
           <div className="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800">
             <div className="text-xs text-zinc-500 font-semibold">Sidecars Paired</div>

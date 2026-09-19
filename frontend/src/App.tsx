@@ -48,6 +48,8 @@ export function App() {
   // Triage Decisions
   const [approvedDocs, setApprovedDocs] = useState<MediaItem[]>([]);
   const [approvedPhotos, setApprovedPhotos] = useState<MediaItem[]>([]);
+  const [approvedTrash, setApprovedTrash] = useState<MediaItem[]>([]);
+  const [approvedSkipped, setApprovedSkipped] = useState<MediaItem[]>([]);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [showExecutionModal, setShowExecutionModal] = useState(false);
 
@@ -61,6 +63,11 @@ export function App() {
     setIsScanning(true);
     setError(null);
     setRollbackStatus(null);
+    setApprovedDocs([]);
+    setApprovedPhotos([]);
+    setApprovedTrash([]);
+    setApprovedSkipped([]);
+    setClusters([]);
     try {
       const res = await scanFolder(
         sourceDir,
@@ -110,6 +117,11 @@ export function App() {
       setObviousDocs([]);
       setObviousPhotos([]);
       setMixedItems([]);
+      setApprovedDocs([]);
+      setApprovedPhotos([]);
+      setApprovedTrash([]);
+      setApprovedSkipped([]);
+      setClusters([]);
     } catch (err: any) {
       setError(err.message || 'Rollback failed');
     } finally {
@@ -120,10 +132,12 @@ export function App() {
   const handleCleanSweepApprove = (
     validDocs: MediaItem[],
     validPhotos: MediaItem[],
-    demotedToMixed: MediaItem[]
+    demotedToMixed: MediaItem[],
+    trashItems: MediaItem[] = []
   ) => {
     setApprovedDocs(validDocs);
     setApprovedPhotos(validPhotos);
+    setApprovedTrash((prev) => [...prev, ...trashItems]);
     const combinedMixed = [...mixedItems, ...demotedToMixed];
     setMixedItems(combinedMixed);
 
@@ -135,20 +149,29 @@ export function App() {
   };
 
   const handleDecisionDeckComplete = async (
-    deckDecisions: Record<string, { item: MediaItem; decision: 'DOCUMENT' | 'PHOTO' }>
+    deckDecisions: Record<string, { item: MediaItem; decision: 'DOCUMENT' | 'PHOTO' | 'TRASH' | 'SKIP' }>
   ) => {
     const deckDocs: MediaItem[] = [];
     const deckPhotos: MediaItem[] = [];
+    const deckTrash: MediaItem[] = [];
+    const deckSkipped: MediaItem[] = [];
 
     Object.values(deckDecisions).forEach(({ item, decision }) => {
       if (decision === 'DOCUMENT') deckDocs.push(item);
-      else deckPhotos.push(item);
+      else if (decision === 'PHOTO') deckPhotos.push(item);
+      else if (decision === 'TRASH') deckTrash.push(item);
+      else if (decision === 'SKIP') deckSkipped.push(item);
     });
 
     const allDocs = [...approvedDocs, ...deckDocs];
     const allPhotos = [...approvedPhotos, ...deckPhotos];
+    const allTrash = [...approvedTrash, ...deckTrash];
+    const allSkipped = [...approvedSkipped, ...deckSkipped];
+
     setApprovedDocs(allDocs);
     setApprovedPhotos(allPhotos);
+    setApprovedTrash(allTrash);
+    setApprovedSkipped(allSkipped);
 
     handleProceedToClustering(allPhotos);
   };
@@ -202,6 +225,30 @@ export function App() {
           sidecar_path: it.sidecar_path,
         };
       });
+    });
+
+    // 3. Utility Trash
+    approvedTrash.forEach((t) => {
+      decisions[t.id] = {
+        path: t.path,
+        category: 'TRASH',
+        is_video: t.is_video,
+        month_str: t.month_str,
+        has_sidecar: t.has_sidecar,
+        sidecar_path: t.sidecar_path,
+      };
+    });
+
+    // 4. Skipped Items
+    approvedSkipped.forEach((s) => {
+      decisions[s.id] = {
+        path: s.path,
+        category: 'SKIP',
+        is_video: s.is_video,
+        month_str: s.month_str,
+        has_sidecar: s.has_sidecar,
+        sidecar_path: s.sidecar_path,
+      };
     });
 
     return decisions;
@@ -510,6 +557,11 @@ export function App() {
           decisions={buildFinalDecisions()}
           onClose={() => setShowExecutionModal(false)}
           onSuccess={() => {
+            setApprovedDocs([]);
+            setApprovedPhotos([]);
+            setApprovedTrash([]);
+            setApprovedSkipped([]);
+            setClusters([]);
             setStep('ingest');
           }}
         />

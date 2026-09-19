@@ -7,45 +7,44 @@ import {
   ArrowRight,
   Maximize2,
   Calendar,
-  Compass
+  Compass,
+  Trash2,
+  SkipForward
 } from 'lucide-react';
 import { getThumbnailUrl, getFullFileUrl, classifySingle, streamClassify, type MediaItem } from '../services/api';
+
+export type DecisionType = 'DOCUMENT' | 'PHOTO' | 'TRASH' | 'SKIP';
 
 interface Props {
   mixedItems: MediaItem[];
   backend?: 'ollama' | 'gemini';
-  onComplete: (decisions: Record<string, { item: MediaItem; decision: 'DOCUMENT' | 'PHOTO' }>) => void;
+  onComplete: (decisions: Record<string, { item: MediaItem; decision: DecisionType }>) => void;
   onBack: () => void;
 }
 
 export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollama', onComplete, onBack }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [decisions, setDecisions] = useState<Record<string, { item: MediaItem; decision: 'DOCUMENT' | 'PHOTO' }>>({});
+  const [decisions, setDecisions] = useState<Record<string, { item: MediaItem; decision: DecisionType }>>({});
   const [history, setHistory] = useState<string[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [isStreamingAi, setIsStreamingAi] = useState(false);
   const [streamCount, setStreamCount] = useState(0);
   const [aiCaptions, setAiCaptions] = useState<Record<string, { caption: string; category?: string; reason?: string }>>({});
-  const [currentCaption, setCurrentCaption] = useState<string>('');
   const [showFull, setShowFull] = useState(false);
 
   const currentItem = mixedItems[currentIndex];
 
-  // Fetch or set description for current item from stream, cache, or item
-  useEffect(() => {
-    if (!currentItem) return;
-    const streamed = aiCaptions[currentItem.id] || aiCaptions[currentItem.path];
-    if (streamed?.caption) {
-      setCurrentCaption(streamed.caption);
-    } else if (currentItem.caption) {
-      setCurrentCaption(currentItem.caption);
-    } else {
-      setCurrentCaption(currentItem.reason || 'Visual inspection needed');
-    }
-  }, [currentIndex, currentItem, aiCaptions]);
+  // Derive active caption directly during render (avoids set-state-in-effect React warning)
+  const activeCaption = currentItem
+    ? (aiCaptions[currentItem.id]?.caption ||
+       aiCaptions[currentItem.path]?.caption ||
+       currentItem.caption ||
+       currentItem.reason ||
+       'Visual inspection needed')
+    : '';
 
   const handleDecision = useCallback(
-    (choice: 'DOCUMENT' | 'PHOTO') => {
+    (choice: DecisionType) => {
       if (!currentItem) return;
       setDecisions((prev) => ({
         ...prev,
@@ -79,14 +78,16 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollam
     try {
       const res = await classifySingle(currentItem.path, backend, 'moondream');
       const text = res.caption || res.reason;
-      setCurrentCaption(text);
       setAiCaptions((prev) => ({
         ...prev,
         [currentItem.id]: { caption: text, category: res.category, reason: res.reason },
         [currentItem.path]: { caption: text, category: res.category, reason: res.reason },
       }));
     } catch {
-      setCurrentCaption(`${backend === 'gemini' ? 'Gemini' : 'Local Ollama'} call failed`);
+      setAiCaptions((prev) => ({
+        ...prev,
+        [currentItem.id]: { caption: `${backend === 'gemini' ? 'Gemini' : 'Local Ollama'} call failed` },
+      }));
     } finally {
       setAiLoading(false);
     }
@@ -140,6 +141,12 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollam
       } else if (e.key === 'f' || e.key === 'F' || e.key === 'ArrowRight') {
         e.preventDefault();
         handleDecision('PHOTO');
+      } else if (e.key === 'x' || e.key === 'X' || e.key === 'Delete') {
+        e.preventDefault();
+        handleDecision('TRASH');
+      } else if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        handleDecision('SKIP');
       } else if (e.key === 'z' || e.key === 'Z') {
         e.preventDefault();
         handleUndo();
@@ -306,16 +313,16 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollam
                 </div>
               </div>
               <p className="text-xs text-zinc-300 leading-relaxed italic">
-                "{currentCaption || 'Analyzing scene...'}"
+                "{activeCaption || 'Analyzing scene...'}"
               </p>
             </div>
           </div>
 
           {/* Action Buttons */}
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             <button
               onClick={() => handleDecision('DOCUMENT')}
-              className="w-full flex items-center justify-between p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 font-semibold transition active:scale-98 cursor-pointer shadow-lg"
+              className="w-full flex items-center justify-between p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 font-semibold transition active:scale-98 cursor-pointer shadow-lg"
             >
               <div className="flex items-center gap-3">
                 <FileText className="w-5 h-5 text-amber-400" />
@@ -328,7 +335,7 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollam
 
             <button
               onClick={() => handleDecision('PHOTO')}
-              className="w-full flex items-center justify-between p-4 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 font-semibold transition active:scale-98 cursor-pointer shadow-lg"
+              className="w-full flex items-center justify-between p-3.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-200 font-semibold transition active:scale-98 cursor-pointer shadow-lg"
             >
               <div className="flex items-center gap-3">
                 <ImageIcon className="w-5 h-5 text-cyan-400" />
@@ -338,6 +345,34 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollam
                 F
               </kbd>
             </button>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <button
+                onClick={() => handleDecision('TRASH')}
+                className="flex items-center justify-between p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-200 font-medium text-xs transition active:scale-98 cursor-pointer shadow"
+              >
+                <div className="flex items-center gap-2">
+                  <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>Trash</span>
+                </div>
+                <kbd className="bg-rose-950/80 border border-rose-500/40 text-rose-300 text-[11px] px-2 py-0.5 rounded font-mono font-bold">
+                  X
+                </kbd>
+              </button>
+
+              <button
+                onClick={() => handleDecision('SKIP')}
+                className="flex items-center justify-between p-3 rounded-xl border border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-300 font-medium text-xs transition active:scale-98 cursor-pointer shadow"
+              >
+                <div className="flex items-center gap-2">
+                  <SkipForward className="w-4 h-4 text-zinc-400 shrink-0" />
+                  <span>Skip</span>
+                </div>
+                <kbd className="bg-zinc-900 border border-zinc-700 text-zinc-300 text-[11px] px-2 py-0.5 rounded font-mono font-bold">
+                  S
+                </kbd>
+              </button>
+            </div>
           </div>
         </div>
       </div>
