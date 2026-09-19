@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.inventory import inventory_stats, scan_inventory
+from core.inventory import inventory_stats, query_inventory, scan_inventory
 
 
 def test_inventory_reconciles_records_and_statistics(tmp_path):
@@ -42,3 +42,18 @@ def test_inventory_handles_bad_files_and_cancellation(tmp_path):
     assert completed["status"] == "completed"
     assert completed["indexed"] == 1
     assert inventory_stats(database)["videos"]["count"] == 1
+
+
+def test_inventory_query_combines_search_year_and_pagination(tmp_path):
+    root = tmp_path / "Pictures"
+    root.mkdir()
+    (root / "Family_20240101.jpg").write_bytes(b"one")
+    (root / "Family_20240102.jpg").write_bytes(b"two")
+    (root / "Receipt_20230101.png").write_bytes(b"three")
+    database = tmp_path / "inventory.sqlite3"
+    scan_inventory(root, "pictures", database)
+
+    result = query_inventory("pictures", search="family", year=2024, page=1, page_size=1, inventory_path=database)
+    assert result["total"] == 2
+    assert len(result["items"]) == 1
+    assert result["page_size"] == 1

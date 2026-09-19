@@ -1,35 +1,44 @@
-# Issue #19 Implementation Plan: Configured Destination Routing
+# Issue #20 Implementation Plan: Media Library Browsing, Search, and Filters
 
 ## Dependency
 
-Issue #19 depends on the persisted folder-settings contract from #17 and consumes the inventory/media boundaries from #18 where available.
+Issue #20 consumes the persisted folder settings from #17 and the durable inventory/statistics contract from #18.
 
 ## Acceptance Criteria Mapping
 
-1. Picture albums route to the configured Pictures destination and video albums route to Videos.
-2. Resolved destinations are visible before execution.
-3. Unsafe or ambiguous destinations block execution before file changes.
-4. Collision and rollback behavior remains intact.
-5. Tests cover mixed media, repeated execution, collisions, and partial failures.
+1. Users can browse Pictures and Videos independently.
+2. Counts, total size, date range, and last scan status are visible.
+3. Search and year/date filters query the inventory correctly.
+4. Filters combine and clear predictably.
+5. Large inventories remain usable through bounded loading or virtualization.
 
-## Implemented Design
+## Proposed Design
 
-- Keep existing source-relative `Pictures` and `Videos` folders as the fallback when a destination is unset.
-- Accept configured destinations through both the Python API and Tauri command boundary.
-- Validate configured destinations before processing any decision: existing directory, not the source root, and no overlap between Pictures and Videos.
-- Preserve the existing unique-name collision strategy and ledger-based rollback.
-- Return resolved destinations in execution results and show them in the final execution preview.
+- Add a dedicated Media Library surface reachable from the main cockpit navigation.
+- Present Pictures and Videos as independent tabs with summary cards for item count, total bytes, date range, stale records, and last scan.
+- Add a backend/Tauri query contract with pagination, text search, media type, year/date range, extension, size range, and state filters.
+- Keep filtering in the inventory layer so the UI does not load the entire media collection or rescan the filesystem.
+- Add explicit loading, scanning, stale, empty, unavailable, and error states.
+- Let users inspect the source path and metadata for a selected result without moving or deleting anything.
 
 ## Target Files
 
-- `backend/core/executor.py` and `backend/api/routes_execute.py`
-- `frontend/src-tauri/src/executor.rs` and `frontend/src-tauri/src/lib.rs`
-- `frontend/src/services/api.ts`, `frontend/src/App.tsx`, and `frontend/src/components/ExecutionModal.tsx`
-- `backend/tests/test_destination_routing.py`
+- Add `MediaLibraryView` and supporting result/stat cards under `frontend/src/components/`.
+- Extend `frontend/src/App.tsx` navigation and `frontend/src/services/api.ts` query types.
+- Add paginated inventory query functions to `backend/core/inventory.py` and `backend/api/routes_inventory.py`.
+- Add matching Tauri inventory query command and bounded result serialization.
+- Add Python and Rust tests for combined filters, year boundaries, pagination, stale state, and empty results.
+
+## Safety and Performance
+
+- Library browsing is read-only and must never invoke executor operations.
+- Return only bounded result pages; do not serialize the entire inventory for each query.
+- Treat stale records as visible but clearly marked until the next successful scan.
+- Escape or parameterize all search/filter inputs at the inventory query boundary.
+- Preserve the canonical inventory as the source of truth; thumbnails and future face indexes remain derived caches.
 
 ## Verification Plan
 
-- Test configured picture/video routing and fallback behavior.
-- Test overlap and invalid-destination rejection before file movement.
-- Run existing collision and rollback tests.
-- Run Rust tests, TypeScript compilation, frontend lint, Python compilation, and `git diff --check`.
+- Test query correctness for Pictures/Videos, text search, year/date ranges, extensions, sizes, and combined filters.
+- Test pagination stability and stale/unavailable states.
+- Run Rust tests, Python inventory/API tests, TypeScript compilation, frontend lint, and `git diff --check`.
