@@ -3,6 +3,7 @@ mod clustering;
 mod executor;
 mod media;
 mod scanner;
+mod settings;
 
 use classifier::{analyze_image, classify_heuristic, ClassificationResult};
 use clustering::{cluster_items, Cluster};
@@ -14,6 +15,26 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::http::{Response, StatusCode};
+use tauri::{AppHandle, Manager};
+use settings::AppSettings;
+
+fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not locate app data folder: {e}"))?
+        .join("settings.json"))
+}
+
+#[tauri::command]
+fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
+    settings::load(&settings_path(&app)?)
+}
+
+#[tauri::command]
+fn save_settings(app: AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
+    settings::save(&settings_path(&app)?, &settings)
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScanResultPayload {
@@ -275,6 +296,7 @@ fn url_decode(input: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol("dc-media", |_app, request| {
             let uri = request.uri().to_string();
             // uri format: dc-media://thumbnail?path=...&max_dim=320 or dc-media://localhost/thumbnail?path=...
@@ -347,6 +369,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            get_settings,
+            save_settings,
             get_system_status,
             scan_folder,
             classify_single,

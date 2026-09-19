@@ -14,6 +14,7 @@ except ImportError:
 from api.routes_media import router as media_router
 from api.routes_scan import router as scan_router
 from api.routes_execute import router as execute_router
+from api.routes_settings import router as settings_router
 
 app = FastAPI(
     title="DreamCatcher API",
@@ -33,6 +34,7 @@ app.add_middleware(
 app.include_router(media_router)
 app.include_router(scan_router)
 app.include_router(execute_router)
+app.include_router(settings_router)
 
 
 @app.get("/")
