@@ -1,4 +1,10 @@
+import { invoke } from '@tauri-apps/api/core';
+
 export const API_BASE = 'http://127.0.0.1:8080';
+
+export const isTauri =
+  typeof window !== 'undefined' &&
+  ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
 
 export interface MediaItem {
   id: string;
@@ -42,6 +48,12 @@ export interface SystemStatus {
 }
 
 export async function fetchSystemStatus(): Promise<SystemStatus> {
+  if (isTauri) {
+    return await invoke<SystemStatus>('get_system_status', {
+      ollamaUrl: 'http://127.0.0.1:11434',
+    });
+  }
+
   const res = await fetch(`${API_BASE}/api/system/status`);
   if (!res.ok) throw new Error('Failed to reach backend');
   return res.json();
@@ -64,6 +76,17 @@ export async function scanFolder(
   monthFilter?: string | null,
   runAiOnAmbiguous: boolean = false
 ): Promise<ScanResult> {
+  if (isTauri) {
+    return await invoke<ScanResult>('scan_folder', {
+      sourceDir,
+      monthFilter: monthFilter || null,
+      runAiOnAmbiguous,
+      backend,
+      ollamaModel,
+      ollamaUrl: 'http://127.0.0.1:11434',
+    });
+  }
+
   const res = await fetch(`${API_BASE}/api/scan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -87,6 +110,18 @@ export async function classifySingle(
   backend: 'ollama' | 'gemini' = 'ollama',
   ollamaModel: string = 'moondream'
 ): Promise<{ category: string; reason: string; caption: string }> {
+  if (isTauri) {
+    return await invoke<{ category: string; reason: string; caption: string }>(
+      'classify_single',
+      {
+        path,
+        backend,
+        ollamaModel,
+        ollamaUrl: 'http://127.0.0.1:11434',
+      }
+    );
+  }
+
   const res = await fetch(`${API_BASE}/api/scan/classify_single`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -100,7 +135,33 @@ export async function classifyBatch(
   paths: string[],
   backend: 'ollama' | 'gemini' = 'ollama',
   ollamaModel: string = 'moondream'
-): Promise<{ results: Array<{ path: string; category: string; tier: string; reason: string; caption: string }> }> {
+): Promise<{
+  results: Array<{
+    path: string;
+    category: string;
+    tier: string;
+    reason: string;
+    caption: string;
+  }>;
+}> {
+  if (isTauri) {
+    const results = await invoke<
+      Array<{
+        path: string;
+        category: string;
+        tier: string;
+        reason: string;
+        caption: string;
+      }>
+    >('classify_batch', {
+      paths,
+      backend,
+      ollamaModel,
+      ollamaUrl: 'http://127.0.0.1:11434',
+    });
+    return { results };
+  }
+
   const res = await fetch(`${API_BASE}/api/scan/classify_batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -112,11 +173,40 @@ export async function classifyBatch(
 
 export async function streamClassify(
   paths: string[],
-  onItem: (item: { path: string; category: string; tier: string; reason: string; caption: string }) => void,
+  onItem: (item: {
+    path: string;
+    category: string;
+    tier: string;
+    reason: string;
+    caption: string;
+  }) => void,
   backend: 'ollama' | 'gemini' = 'ollama',
   ollamaModel: string = 'moondream',
   signal?: AbortSignal
 ): Promise<void> {
+  if (isTauri) {
+    for (const path of paths) {
+      if (signal?.aborted) break;
+      try {
+        const res = await invoke<{
+          category: string;
+          tier: string;
+          reason: string;
+          caption: string;
+        }>('classify_single', {
+          path,
+          backend,
+          ollamaModel,
+          ollamaUrl: 'http://127.0.0.1:11434',
+        });
+        onItem({ path, ...res });
+      } catch (e) {
+        console.error('Error during desktop classification:', e);
+      }
+    }
+    return;
+  }
+
   const res = await fetch(`${API_BASE}/api/scan/classify_stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -156,7 +246,18 @@ export async function streamClassify(
   }
 }
 
-export async function clusterMedia(items: MediaItem[]): Promise<{ clusters: Cluster[] }> {
+export async function clusterMedia(
+  items: MediaItem[]
+): Promise<{ clusters: Cluster[] }> {
+  if (isTauri) {
+    const clusters = await invoke<Cluster[]>('cluster_media', {
+      items,
+      clusterHours: 4.0,
+      minClusterSize: 5,
+    });
+    return { clusters };
+  }
+
   const res = await fetch(`${API_BASE}/api/scan/cluster`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -171,6 +272,14 @@ export async function executeTriage(
   decisions: Record<string, any>,
   action: 'move' | 'copy' = 'move'
 ): Promise<any> {
+  if (isTauri) {
+    return await invoke('execute_triage', {
+      sourceDir,
+      decisions,
+      action,
+    });
+  }
+
   const res = await fetch(`${API_BASE}/api/system/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -188,7 +297,15 @@ export interface RollbackResult {
   ledger_backup?: string;
 }
 
-export async function rollbackTriage(sourceDir: string): Promise<RollbackResult> {
+export async function rollbackTriage(
+  sourceDir: string
+): Promise<RollbackResult> {
+  if (isTauri) {
+    return await invoke<RollbackResult>('rollback_triage', {
+      sourceDir,
+    });
+  }
+
   const res = await fetch(`${API_BASE}/api/system/rollback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -202,9 +319,15 @@ export async function rollbackTriage(sourceDir: string): Promise<RollbackResult>
 }
 
 export function getThumbnailUrl(path: string, maxDim: number = 320): string {
+  if (isTauri) {
+    return `http://dc-media.localhost/thumbnail?path=${encodeURIComponent(path)}&max_dim=${maxDim}`;
+  }
   return `${API_BASE}/api/media/thumbnail?path=${encodeURIComponent(path)}&max_dim=${maxDim}`;
 }
 
 export function getFullFileUrl(path: string): string {
+  if (isTauri) {
+    return `http://dc-media.localhost/full?path=${encodeURIComponent(path)}`;
+  }
   return `${API_BASE}/api/media/full?path=${encodeURIComponent(path)}`;
 }
