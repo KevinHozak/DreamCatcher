@@ -5,6 +5,12 @@ main.py - DreamCatcher FastAPI Backend
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass
+
 from api.routes_media import router as media_router
 from api.routes_scan import router as scan_router
 from api.routes_execute import router as execute_router
