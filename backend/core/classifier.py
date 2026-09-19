@@ -17,6 +17,14 @@ from typing import Dict, Tuple, Optional, Any
 from PIL import Image
 
 try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass
+
+from core.scanner import VIDEO_EXTS
+
+try:
     from google import genai as _genai
     from google.genai import types as _genai_types
     HAS_GENAI = True
@@ -203,6 +211,16 @@ def analyze_image(
 
     filename = filepath.name.lower()
     
+    # 0. Video files
+    if filepath.suffix.lower() in VIDEO_EXTS:
+        return {
+            "category": "PHOTO",
+            "tier": "OBVIOUS",
+            "reason": "Video file",
+            "caption": "Video recording",
+            "is_cached": False
+        }
+
     # 1. Obvious Filename Heuristics
     for pat in DOC_FILENAME_PATTERNS:
         if pat.search(filename):

@@ -11,6 +11,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from PIL import Image, ExifTags
 
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass
+
 PHOTO_EXTS = {'.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp', '.tiff', '.tif', '.gif'}
 VIDEO_EXTS = {'.mp4', '.mov', '.avi', '.m4v', '.mkv'}
 MEDIA_EXTS = PHOTO_EXTS | VIDEO_EXTS
@@ -105,6 +111,7 @@ def extract_timestamp(filepath: Path, sidecar_path: Optional[Path]) -> Tuple[dat
 
 def extract_gps_coordinates(filepath: Path, sidecar_path: Optional[Path]) -> Optional[Tuple[float, float]]:
     """Extracts latitude and longitude from sidecar or EXIF."""
+    # 1. Takeout JSON sidecar
     if sidecar_path and sidecar_path.exists():
         try:
             with open(sidecar_path, 'r', encoding='utf-8') as f:
@@ -116,6 +123,61 @@ def extract_gps_coordinates(filepath: Path, sidecar_path: Optional[Path]) -> Opt
                 return lat, lon
         except Exception:
             pass
+
+    # 2. EXIF GPSInfo tags (tag 34853) for photos
+    if filepath.suffix.lower() in PHOTO_EXTS:
+        try:
+            with Image.open(filepath) as img:
+                exif = img.getexif()
+                if exif:
+                    gps_info = {}
+                    if hasattr(exif, 'get_ifd'):
+                        try:
+                            gps_info = exif.get_ifd(34853)
+                        except Exception:
+                            pass
+                    if not gps_info and hasattr(img, '_getexif'):
+                        try:
+                            legacy = img._getexif()
+                            if legacy and 34853 in legacy:
+                                gps_info = legacy[34853]
+                        except Exception:
+                            pass
+                    if not gps_info and 34853 in exif:
+                        val = exif[34853]
+                        if isinstance(val, dict):
+                            gps_info = val
+
+                    if gps_info:
+                        normalized = {}
+                        for k, v in gps_info.items():
+                            name = ExifTags.GPSTAGS.get(k, k) if isinstance(k, int) else k
+                            normalized[name] = v
+
+                        lat_data = normalized.get('GPSLatitude')
+                        lat_ref = normalized.get('GPSLatitudeRef', 'N')
+                        lon_data = normalized.get('GPSLongitude')
+                        lon_ref = normalized.get('GPSLongitudeRef', 'E')
+
+                        if lat_data and lon_data:
+                            def to_deg(coord, ref):
+                                if isinstance(coord, (int, float)):
+                                    d = float(coord)
+                                elif len(coord) == 3:
+                                    d = float(coord[0]) + float(coord[1]) / 60.0 + float(coord[2]) / 3600.0
+                                else:
+                                    return None
+                                if ref and str(ref).strip().upper() in ('S', 'W'):
+                                    d = -d
+                                return round(d, 6)
+
+                            lat = to_deg(lat_data, lat_ref)
+                            lon = to_deg(lon_data, lon_ref)
+                            if lat is not None and lon is not None:
+                                return (lat, lon)
+        except Exception:
+            pass
+
     return None
 
 
