@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from core.executor import execute_triage_plan
+from core.executor import execute_triage_plan, rollback_triage_plan
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -16,6 +16,10 @@ class ExecuteRequest(BaseModel):
     source_dir: str
     decisions: Dict[str, Dict[str, Any]]
     action: str = "move"
+
+
+class RollbackRequest(BaseModel):
+    source_dir: str
 
 
 @router.get("/status")
@@ -57,3 +61,19 @@ def execute_operations(req: ExecuteRequest):
         action=req.action
     )
     return result
+
+
+@router.post("/rollback")
+def rollback_operations(req: RollbackRequest):
+    src = Path(req.source_dir)
+    if not src.exists() or not src.is_dir():
+        raise HTTPException(status_code=400, detail="Invalid source directory")
+
+    try:
+        result = rollback_triage_plan(src)
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

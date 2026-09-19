@@ -5,7 +5,9 @@ import {
   RefreshCw,
   Calendar,
   Filter,
-  X
+  X,
+  RotateCcw,
+  CheckCircle2
 } from 'lucide-react';
 import {
   type MediaItem,
@@ -14,7 +16,8 @@ import {
   type ScanResult,
   fetchSystemStatus,
   scanFolder,
-  clusterMedia
+  clusterMedia,
+  rollbackTriage
 } from './services/api';
 import { CleanSweepView } from './components/CleanSweepView';
 import { DecisionDeckView } from './components/DecisionDeckView';
@@ -29,6 +32,8 @@ export function App() {
   const [monthFilter, setMonthFilter] = useState<string>('');
   const [scanStats, setScanStats] = useState<ScanResult | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [isRollingBack, setIsRollingBack] = useState(false);
+  const [rollbackStatus, setRollbackStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // System & Model Status
@@ -55,6 +60,7 @@ export function App() {
   const handleStartScan = async () => {
     setIsScanning(true);
     setError(null);
+    setRollbackStatus(null);
     try {
       const res = await scanFolder(
         sourceDir,
@@ -79,6 +85,35 @@ export function App() {
       setError(err.message || 'Scan failed');
     } finally {
       setIsScanning(false);
+    }
+  };
+
+  const handleRollback = async () => {
+    if (!sourceDir || isRollingBack) return;
+    if (
+      !window.confirm(
+        `Roll back previous triage execution in:\n${sourceDir}?\n\nThis will restore moved files and sidecars to their pre-triage locations.`
+      )
+    ) {
+      return;
+    }
+
+    setIsRollingBack(true);
+    setError(null);
+    setRollbackStatus(null);
+    try {
+      const res = await rollbackTriage(sourceDir);
+      setRollbackStatus(
+        `Successfully restored ${res.restored_items} media items and ${res.restored_sidecars} sidecars to pre-triage locations.`
+      );
+      setScanStats(null);
+      setObviousDocs([]);
+      setObviousPhotos([]);
+      setMixedItems([]);
+    } catch (err: any) {
+      setError(err.message || 'Rollback failed');
+    } finally {
+      setIsRollingBack(false);
     }
   };
 
@@ -259,6 +294,18 @@ export function App() {
 
       {/* Main View Container */}
       <main className="flex-1 p-6 max-w-7xl w-full mx-auto flex flex-col">
+        {rollbackStatus && (
+          <div className="mb-4 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{rollbackStatus}</span>
+            </div>
+            <button onClick={() => setRollbackStatus(null)} className="text-xs hover:underline cursor-pointer">
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="mb-4 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm flex items-center justify-between">
             <span>{error}</span>
@@ -392,7 +439,7 @@ export function App() {
 
               <button
                 onClick={handleStartScan}
-                disabled={isScanning || !sourceDir}
+                disabled={isScanning || isRollingBack || !sourceDir}
                 className="w-full flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-3.5 rounded-xl shadow-lg shadow-cyan-950 transition active:scale-98 cursor-pointer disabled:opacity-50"
               >
                 {isScanning ? (
@@ -409,6 +456,20 @@ export function App() {
                   </>
                 )}
               </button>
+
+              {/* Rollback Action */}
+              <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={handleRollback}
+                  disabled={isScanning || isRollingBack || !sourceDir}
+                  className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-amber-300 transition py-1.5 px-3 rounded-lg hover:bg-zinc-800/60 cursor-pointer disabled:opacity-50"
+                  title="Restore moved files and sidecars to their pre-triage state"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isRollingBack ? 'animate-spin text-amber-400' : ''}`} />
+                  <span>{isRollingBack ? 'Rolling back files...' : 'Rollback Previous Run'}</span>
+                </button>
+              </div>
             </div>
           </div>
         )}

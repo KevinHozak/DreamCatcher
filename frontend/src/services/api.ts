@@ -180,6 +180,27 @@ export async function executeTriage(
   return res.json();
 }
 
+export interface RollbackResult {
+  success: boolean;
+  restored_items: number;
+  restored_sidecars: number;
+  errors: number;
+  ledger_backup?: string;
+}
+
+export async function rollbackTriage(sourceDir: string): Promise<RollbackResult> {
+  const res = await fetch(`${API_BASE}/api/system/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_dir: sourceDir }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Rollback failed');
+  }
+  return res.json();
+}
+
 export function getThumbnailUrl(path: string, maxDim: number = 320): string {
   return `${API_BASE}/api/media/thumbnail?path=${encodeURIComponent(path)}&max_dim=${maxDim}`;
 }
