@@ -53,10 +53,16 @@ export function App() {
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [showExecutionModal, setShowExecutionModal] = useState(false);
 
-  useEffect(() => {
+  const checkStatus = () => {
     fetchSystemStatus()
       .then(setStatus)
       .catch(() => setStatus(null));
+  };
+
+  useEffect(() => {
+    checkStatus();
+    const interval = setInterval(checkStatus, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleStartScan = async () => {
@@ -317,16 +323,25 @@ export function App() {
 
         {/* System & Ollama Status */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-zinc-950 px-3 py-1.5 rounded-xl border border-zinc-800 text-xs">
+          <button
+            type="button"
+            onClick={checkStatus}
+            title="Click to refresh Ollama connection status"
+            className="flex items-center gap-2 bg-zinc-950 hover:bg-zinc-900 px-3 py-1.5 rounded-xl border border-zinc-800 hover:border-zinc-700 text-xs transition cursor-pointer"
+          >
             <span
               className={`w-2 h-2 rounded-full ${
                 status?.ollama.connected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
               }`}
             />
             <span className="text-zinc-300 font-medium">
-              {status?.ollama.has_moondream ? 'Moondream Ready' : 'Ollama Offline'}
+              {status?.ollama.connected
+                ? status.ollama.has_moondream
+                  ? 'Moondream Ready'
+                  : 'Ollama Online'
+                : 'Ollama Offline (Retry)'}
             </span>
-          </div>
+          </button>
 
           <select
             value={backend}

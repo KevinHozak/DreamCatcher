@@ -40,22 +40,12 @@ pub struct SystemStatusPayload {
     pub ollama: OllamaStatus,
 }
 
-#[tauri::command]
-async fn get_system_status(ollama_url: Option<String>) -> Result<SystemStatusPayload, String> {
-    let url = ollama_url.unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(3))
-        .build()
-        .unwrap_or_default();
-
-    let mut connected = false;
-    let mut models = Vec::new();
-    let mut has_moondream = false;
-
+async fn query_ollama(client: &reqwest::Client, url: &str) -> (bool, Vec<String>, bool) {
     if let Ok(resp) = client.get(format!("{}/api/tags", url)).send().await {
         if resp.status().is_success() {
-            connected = true;
             if let Ok(data) = resp.json::<serde_json::Value>().await {
+                let mut models = Vec::new();
+                let mut has_moondream = false;
                 if let Some(arr) = data.get("models").and_then(|m| m.as_array()) {
                     for m in arr {
                         if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
@@ -67,6 +57,49 @@ async fn get_system_status(ollama_url: Option<String>) -> Result<SystemStatusPay
                         }
                     }
                 }
+                return (true, models, has_moondream);
+            }
+        }
+    }
+    (false, Vec::new(), false)
+}
+
+#[tauri::command]
+async fn get_system_status(ollama_url: Option<String>) -> Result<SystemStatusPayload, String> {
+    let url = ollama_url.unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .unwrap_or_default();
+
+    let (mut connected, mut models, mut has_moondream) = query_ollama(&client, &url).await;
+
+    if !connected && (url.contains("127.0.0.1") || url.contains("localhost")) {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            let ollama_bin = PathBuf::from(local_app_data)
+                .join("Programs")
+                .join("Ollama")
+                .join("ollama.exe");
+            if ollama_bin.exists() {
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    const CREATE_NO_WINDOW: u32 = 0x08000000;
+                    const DETACHED_PROCESS: u32 = 0x00000008;
+
+                    let _ = std::process::Command::new(&ollama_bin)
+                        .arg("serve")
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+                        .spawn();
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(1800)).await;
+                let (recheck_conn, recheck_models, recheck_moon) = query_ollama(&client, &url).await;
+                connected = recheck_conn;
+                models = recheck_models;
+                has_moondream = recheck_moon;
             }
         }
     }
