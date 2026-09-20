@@ -65,6 +65,12 @@ export interface PeopleSearchStatus {
   last_run: string | null;
 }
 
+export interface ReviewedPerson {
+  id: number;
+  label: string;
+  media_count: number;
+}
+
 export interface InventoryScanSummary {
   scan_id: string;
   root_kind: 'pictures' | 'videos';
@@ -140,6 +146,7 @@ export interface InventoryQuery {
   minSize?: number;
   maxSize?: number;
   state?: 'available' | 'stale';
+  person?: string;
   page?: number;
   pageSize?: number;
 }
@@ -180,6 +187,7 @@ export async function queryInventory(query: InventoryQuery): Promise<InventoryPa
         state: query.state || 'available',
         page: query.page || 1,
         page_size: query.pageSize || 50,
+        person: query.person || null,
       },
     });
   }
@@ -191,6 +199,7 @@ export async function queryInventory(query: InventoryQuery): Promise<InventoryPa
   if (query.extension) params.set('extension', query.extension);
   if (query.minSize !== undefined) params.set('min_size', String(query.minSize));
   if (query.maxSize !== undefined) params.set('max_size', String(query.maxSize));
+  if (query.person) params.set('person', query.person);
   const res = await fetch(`${API_BASE}/api/inventory/items?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to query inventory');
   return res.json();
@@ -272,6 +281,15 @@ export async function deletePeopleSearchIndex(): Promise<{ deleted: boolean }> {
   const res = await fetch(`${API_BASE}/api/people-search/index`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete people-search index');
   return res.json();
+}
+
+export async function fetchReviewedPeople(search?: string): Promise<ReviewedPerson[]> {
+  if (isTauri) throw new Error('Reviewed people search is not yet available in the native inventory bridge');
+  const params = search ? `?search=${encodeURIComponent(search)}` : '';
+  const res = await fetch(`${API_BASE}/api/people-search/people${params}`);
+  if (!res.ok) throw new Error('Failed to load reviewed people');
+  const data = await res.json();
+  return data.people;
 }
 
 export async function pickFolder(title: string): Promise<string | null> {

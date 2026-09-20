@@ -41,11 +41,12 @@ def get_inventory_items(
     min_size: Optional[int] = None,
     max_size: Optional[int] = None,
     state: str = "available",
+    person: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
     inventory_path: Optional[str] = None,
 ):
     try:
-        return query_inventory(root_kind, search, year, date_from, date_to, extension, min_size, max_size, state, page, page_size, Path(inventory_path) if inventory_path else None)
+        return query_inventory(root_kind, search, year, date_from, date_to, extension, min_size, max_size, state, page, page_size, Path(inventory_path) if inventory_path else None, person)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, FileImage, FolderOpen, Search, X } from 'lucide-react';
-import { deletePeopleSearchIndex, fetchInventoryStats, fetchPeopleSearchStatus, processMediaCaptions, queryInventory, saveMediaDescription, type InventoryItem, type InventoryPage, type InventoryStats, type PeopleSearchStatus } from '../services/api';
+import { deletePeopleSearchIndex, fetchInventoryStats, fetchPeopleSearchStatus, fetchReviewedPeople, processMediaCaptions, queryInventory, saveMediaDescription, type InventoryItem, type InventoryPage, type InventoryStats, type PeopleSearchStatus, type ReviewedPerson } from '../services/api';
 
 interface Props {
   onClose: () => void;
@@ -29,6 +29,8 @@ export function MediaLibraryView({ onClose }: Props) {
   const [page, setPage] = useState<InventoryPage | null>(null);
   const [stats, setStats] = useState<InventoryStats | null>(null);
   const [peopleSearch, setPeopleSearch] = useState<PeopleSearchStatus | null>(null);
+  const [reviewedPeople, setReviewedPeople] = useState<ReviewedPerson[]>([]);
+  const [person, setPerson] = useState('');
   const [selected, setSelected] = useState<InventoryItem | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -39,6 +41,7 @@ export function MediaLibraryView({ onClose }: Props) {
   useEffect(() => {
     fetchInventoryStats().then(setStats).catch(() => undefined);
     fetchPeopleSearchStatus().then(setPeopleSearch).catch(() => undefined);
+    fetchReviewedPeople().then(setReviewedPeople).catch(() => undefined);
   }, []);
 
   const handleDeletePeopleIndex = async () => {
@@ -54,13 +57,14 @@ export function MediaLibraryView({ onClose }: Props) {
       year: year ? Number(year) : undefined,
       extension,
       state,
+      person: person || undefined,
       page: pageNumber,
       pageSize: PAGE_SIZE,
     })
       .then(setPage)
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load media library'))
       .finally(() => setLoading(false));
-  }, [rootKind, search, year, extension, state, pageNumber]);
+  }, [rootKind, search, year, extension, state, person, pageNumber]);
 
   const totalPages = page ? Math.max(1, Math.ceil(page.total / PAGE_SIZE)) : 1;
 
@@ -69,6 +73,7 @@ export function MediaLibraryView({ onClose }: Props) {
     setYear('');
     setExtension('');
     setState('available');
+    setPerson('');
     setPageNumber(1);
   };
 
@@ -77,7 +82,7 @@ export function MediaLibraryView({ onClose }: Props) {
     try {
       await processMediaCaptions(rootKind);
       setPageNumber((value) => value);
-      const refreshed = await queryInventory({ rootKind, search, year: year ? Number(year) : undefined, extension, state, page: pageNumber, pageSize: PAGE_SIZE });
+      const refreshed = await queryInventory({ rootKind, search, year: year ? Number(year) : undefined, extension, state, person: person || undefined, page: pageNumber, pageSize: PAGE_SIZE });
       setPage(refreshed);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Caption processing is unavailable');
@@ -149,6 +154,7 @@ export function MediaLibraryView({ onClose }: Props) {
         <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2"><CalendarDays className="w-4 h-4 text-zinc-500" /><input value={year} onChange={(event) => { setYear(event.target.value.replace(/\D/g, '').slice(0, 4)); setPageNumber(1); }} placeholder="Year" inputMode="numeric" className="bg-transparent text-sm text-white outline-none w-20" /></div>
         <input value={extension} onChange={(event) => { setExtension(event.target.value); setPageNumber(1); }} placeholder="Extension" className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white outline-none w-28" />
         <select value={state} onChange={(event) => { setState(event.target.value as 'available' | 'stale'); setPageNumber(1); }} className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-300 outline-none"><option value="available">Available</option><option value="stale">Stale</option></select>
+        {peopleSearch?.enabled && reviewedPeople.length > 0 && <select value={person} onChange={(event) => { setPerson(event.target.value); setPageNumber(1); }} className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-300 outline-none"><option value="">All reviewed people</option>{reviewedPeople.map((candidate) => <option key={candidate.id} value={candidate.label}>{candidate.label} ({candidate.media_count})</option>)}</select>}
       </div>
 
       {error && <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-sm text-rose-300">{error}</div>}

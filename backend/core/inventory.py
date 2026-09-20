@@ -10,6 +10,7 @@ from typing import Callable, Iterable, Optional
 
 from core.scanner import MEDIA_EXTS, VIDEO_EXTS, extract_gps_coordinates, extract_timestamp, find_json_sidecar
 from core.captions import ensure_caption_schema, sync_imported_descriptions
+from core.people_search import reviewed_media_identities
 
 
 def default_inventory_path() -> Path:
@@ -203,6 +204,7 @@ def query_inventory(
     page: int = 1,
     page_size: int = 50,
     inventory_path: Optional[Path] = None,
+    person: Optional[str] = None,
 ) -> dict:
     if root_kind not in {"pictures", "videos"}:
         raise ValueError("root_kind must be pictures or videos")
@@ -235,6 +237,12 @@ def query_inventory(
     if state in {"available", "stale"}:
         clauses.append("state = ?")
         params.append(state)
+    if person and person.strip():
+        identities = reviewed_media_identities(person)
+        if not identities:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+        clauses.append(f"identity IN ({','.join('?' for _ in identities)})")
+        params.extend(sorted(identities))
 
     where = " AND ".join(clauses)
     db = _connect(inventory_path or default_inventory_path())
