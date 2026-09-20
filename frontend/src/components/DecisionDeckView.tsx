@@ -398,11 +398,21 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollam
           className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-6 cursor-pointer"
           onClick={() => setShowFull(false)}
         >
-          <img
-            src={getFullFileUrl(currentItem.path)}
-            alt={currentItem.name}
-            className="max-h-full max-w-full object-contain rounded-lg shadow-2xl"
-          />
+          {currentItem.is_video ? (
+            <video
+              src={getFullFileUrl(currentItem.path)}
+              controls
+              autoPlay
+              onClick={(event) => event.stopPropagation()}
+              className="max-h-full max-w-full rounded-lg shadow-2xl"
+            />
+          ) : (
+            <img
+              src={getFullFileUrl(currentItem.path)}
+              alt={currentItem.name}
+              className="max-h-full max-w-full object-contain rounded-lg shadow-2xl"
+            />
+          )}
         </div>
       )}
     </div>
