@@ -18,6 +18,7 @@ from api.routes_settings import router as settings_router
 from api.routes_inventory import router as inventory_router
 from api.routes_people_search import router as people_search_router
 from api.routes_duplicates import router as duplicates_router
+from api.routes_captions import router as captions_router
 
 app = FastAPI(
     title="DreamCatcher API",
@@ -41,6 +42,7 @@ app.include_router(settings_router)
 app.include_router(inventory_router)
 app.include_router(people_search_router)
 app.include_router(duplicates_router)
+app.include_router(captions_router)
 
 
 @app.get("/")

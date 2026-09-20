@@ -97,6 +97,12 @@ export interface InventoryItem {
   has_sidecar: boolean;
   has_gps: boolean;
   state: 'available' | 'stale';
+  description?: string | null;
+  description_source?: 'embedded' | 'sidecar' | 'user' | 'generated' | null;
+  description_status?: 'not_processed' | 'queued' | 'processing' | 'complete' | 'failed' | 'skipped' | null;
+  description_runtime?: string | null;
+  description_confidence?: number | null;
+  description_updated_at?: string | null;
 }
 
 export interface InventoryPage {
@@ -187,6 +193,23 @@ export async function queryInventory(query: InventoryQuery): Promise<InventoryPa
   if (query.maxSize !== undefined) params.set('max_size', String(query.maxSize));
   const res = await fetch(`${API_BASE}/api/inventory/items?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to query inventory');
+  return res.json();
+}
+
+export async function saveMediaDescription(identity: string, description: string | null): Promise<void> {
+  if (isTauri) throw new Error('Caption editing is not yet available in the native inventory bridge');
+  const res = await fetch(`${API_BASE}/api/captions/${encodeURIComponent(identity)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description }),
+  });
+  if (!res.ok) throw new Error('Could not save description');
+}
+
+export async function processMediaCaptions(rootKind: 'pictures' | 'videos', rebuild = false): Promise<{ status: string; processed: number; skipped: number; failed: number; cancelled: number }> {
+  if (isTauri) throw new Error('Caption processing is not yet available in the native inventory bridge');
+  const res = await fetch(`${API_BASE}/api/captions/process`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root_kind: rootKind, rebuild }),
+  });
+  if (!res.ok) throw new Error('Caption processing failed');
   return res.json();
 }
 

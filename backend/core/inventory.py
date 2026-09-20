@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 from core.scanner import MEDIA_EXTS, VIDEO_EXTS, extract_gps_coordinates, extract_timestamp, find_json_sidecar
+from core.captions import ensure_caption_schema, sync_imported_descriptions
 
 
 def default_inventory_path() -> Path:
@@ -76,6 +77,7 @@ def _connect(path: Path) -> sqlite3.Connection:
         );
         """
     )
+    ensure_caption_schema(conn)
     return conn
 
 
@@ -152,6 +154,7 @@ def scan_inventory(
             "UPDATE inventory_scans SET completed_at=?,status=?,discovered=?,indexed=?,skipped=? WHERE scan_id=?",
             (_utc_now(), "completed", discovered, indexed, skipped, scan_id),
         )
+        sync_imported_descriptions(conn)
         conn.commit()
         return {"scan_id": scan_id, "status": "completed", "discovered": discovered, "indexed": indexed, "skipped": skipped}
     except Exception as exc:
@@ -238,7 +241,11 @@ def query_inventory(
     try:
         total = db.execute(f"SELECT COUNT(*) FROM media_inventory WHERE {where}", params).fetchone()[0]
         rows = db.execute(
-            f"SELECT identity,path,root_kind,media_type,extension,size,timestamp,is_undated,has_sidecar,has_gps,state FROM media_inventory WHERE {where} ORDER BY timestamp DESC, path LIMIT ? OFFSET ?",
+            f"""SELECT m.identity,m.path,m.root_kind,m.media_type,m.extension,m.size,m.timestamp,m.is_undated,
+            m.has_sidecar,m.has_gps,m.state,c.description,c.source AS description_source,c.status AS description_status,
+            c.runtime AS description_runtime,c.confidence AS description_confidence,c.generated_at,c.updated_at AS description_updated_at
+            FROM media_inventory m LEFT JOIN media_captions c ON c.identity=m.identity
+            WHERE {where} ORDER BY m.timestamp DESC, m.path LIMIT ? OFFSET ?""",
             [*params, page_size, (page - 1) * page_size],
         ).fetchall()
         return {"items": [dict(row) for row in rows], "total": total, "page": page, "page_size": page_size}
