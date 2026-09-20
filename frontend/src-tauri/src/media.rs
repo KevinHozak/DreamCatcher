@@ -141,6 +141,45 @@ pub fn to_rgb_with_background(img: &image::DynamicImage) -> image::RgbImage {
     }
 }
 
+fn extract_video_thumbnail(filepath: &Path, max_dim: u32) -> Option<Vec<u8>> {
+    let scale = format!(
+        "scale='if(gt(iw,ih),min(iw,{}),-2)':'if(gt(ih,iw),min(ih,{}),-2)'",
+        max_dim, max_dim
+    );
+    let output = std::process::Command::new("ffmpeg")
+        .args([
+            "-hide_banner", "-loglevel", "error", "-i",
+        ])
+        .arg(filepath)
+        .args([
+            "-frames:v", "1", "-vf",
+        ])
+        .arg(scale)
+        .args(["-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "4", "pipe:1"])
+        .output()
+        .ok()?;
+    if !output.status.success() || output.stdout.is_empty() {
+        return None;
+    }
+
+    let image = image::load_from_memory(&output.stdout).ok()?;
+    let resized = if image.width() > max_dim || image.height() > max_dim {
+        let scale = max_dim as f32 / image.width().max(image.height()) as f32;
+        image.resize(
+            (image.width() as f32 * scale).round() as u32,
+            (image.height() as f32 * scale).round() as u32,
+            FilterType::Lanczos3,
+        )
+    } else {
+        image
+    };
+    let mut buf = Cursor::new(Vec::new());
+    to_rgb_with_background(&resized)
+        .write_to(&mut buf, image::ImageFormat::Jpeg)
+        .ok()?;
+    Some(buf.into_inner())
+}
+
 pub fn render_thumbnail(filepath: &Path, max_dim: u32) -> Result<(Vec<u8>, String), String> {
     let path_str = filepath.to_string_lossy().to_string();
     let cache_key = format!("{}_{}", path_str, max_dim);
@@ -151,6 +190,11 @@ pub fn render_thumbnail(filepath: &Path, max_dim: u32) -> Result<(Vec<u8>, Strin
 
     let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     if is_video_ext(&ext) {
+        if let Some(frame) = extract_video_thumbnail(filepath, max_dim) {
+            let mime = "image/jpeg".to_string();
+            set_cached_thumb(cache_key, frame.clone(), mime.clone());
+            return Ok((frame, mime));
+        }
         let filename = filepath.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let svg = generate_video_thumbnail_svg(filename, max_dim);
         let mime = "image/svg+xml".to_string();
@@ -210,6 +254,8 @@ pub fn read_full_media(filepath: &Path) -> Result<(Vec<u8>, String), String> {
         "gif" => "image/gif",
         "mp4" => "video/mp4",
         "mov" => "video/quicktime",
+        "avi" => "video/x-msvideo",
+        "m4v" => "video/x-m4v",
         "mkv" => "video/x-matroska",
         _ => "application/octet-stream",
     };
@@ -302,5 +348,57 @@ mod tests {
 
         assert_eq!(rgb.get_pixel(0, 0).0, [100, 150, 200]);
         assert_eq!(rgb.get_pixel(1, 1).0, [24, 24, 27]); // Theme dark neutral
+    }
+
+    #[test]
+    fn test_corrupt_video_uses_svg_fallback() {
+        let video_path = std::env::temp_dir().join(format!(
+            "dreamcatcher-corrupt-video-{}.mkv",
+            std::process::id()
+        ));
+        fs::write(&video_path, b"not a real video").expect("Failed to write test video");
+
+        let result = render_thumbnail(&video_path, 120).expect("Fallback should succeed");
+        let _ = fs::remove_file(&video_path);
+
+        assert_eq!(result.1, "image/svg+xml");
+        assert!(String::from_utf8_lossy(&result.0).contains("VIDEO"));
+    }
+
+    #[test]
+    fn test_video_frame_extraction_preserves_max_dim() {
+        if std::process::Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+
+        let video_path = std::env::temp_dir().join(format!(
+            "dreamcatcher-video-{}.mp4",
+            std::process::id()
+        ));
+        let created = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                "color=c=blue:s=640x360:d=1", "-frames:v", "1",
+            ])
+            .arg(&video_path)
+            .status()
+            .expect("Failed to invoke ffmpeg");
+        if !created.success() {
+            return;
+        }
+
+        let result = render_thumbnail(&video_path, 120).expect("Frame extraction should succeed");
+        let _ = fs::remove_file(&video_path);
+        if result.1 != "image/jpeg" {
+            return;
+        }
+        let decoded = image::load_from_memory(&result.0).expect("Frame should be a valid JPEG");
+
+        assert_eq!(result.1, "image/jpeg");
+        assert_eq!((decoded.width(), decoded.height()), (120, 68));
     }
 }

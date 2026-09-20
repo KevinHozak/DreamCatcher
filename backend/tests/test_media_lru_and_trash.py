@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from api.routes_media import (
     THUMB_CACHE,
     MAX_THUMB_CACHE,
+    extract_video_thumbnail,
     get_cached_thumb,
     set_cached_thumb,
 )
@@ -180,6 +181,47 @@ def test_api_thumbnail_heic():
         assert res.status_code == 200
         assert res.headers["content-type"] == "image/jpeg"
         assert len(res.content) > 0
+
+
+def test_video_thumbnail_extracts_and_respects_max_dim(monkeypatch, tmp_path):
+    from PIL import Image
+    import io
+    import api.routes_media as routes_media
+
+    frame = io.BytesIO()
+    Image.new("RGB", (640, 360), color="purple").save(frame, "JPEG")
+
+    class Completed:
+        returncode = 0
+        stdout = frame.getvalue()
+
+    monkeypatch.setattr(routes_media.subprocess, "run", lambda *args, **kwargs: Completed())
+    for extension in ("mp4", "mov", "avi", "m4v", "mkv"):
+        video = tmp_path / f"clip.{extension}"
+        video.write_bytes(b"mock video")
+
+        result = extract_video_thumbnail(video, 120)
+        assert result is not None
+        decoded = Image.open(io.BytesIO(result))
+        assert decoded.size == (120, 68)
+
+
+def test_video_thumbnail_falls_back_to_svg_when_extraction_fails(monkeypatch, tmp_path):
+    import api.routes_media as routes_media
+
+    class Failed:
+        returncode = 1
+        stdout = b""
+
+    monkeypatch.setattr(routes_media.subprocess, "run", lambda *args, **kwargs: Failed())
+    THUMB_CACHE.clear()
+    video = tmp_path / "corrupt.mkv"
+    video.write_bytes(b"not a real video")
+
+    response = TestClient(app).get(f"/api/media/thumbnail?path={video}&max_dim=120")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/svg+xml"
+    assert b"VIDEO" in response.content
 
 
 if __name__ == "__main__":
