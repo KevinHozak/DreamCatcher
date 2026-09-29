@@ -55,6 +55,7 @@ pub struct InventoryQuery {
     pub min_size: Option<u64>,
     pub max_size: Option<u64>,
     pub state: Option<String>,
+    pub person: Option<String>,
     pub page: Option<usize>,
     pub page_size: Option<usize>,
 }
@@ -342,6 +343,9 @@ pub fn query(app: &AppHandle, q: InventoryQuery) -> Result<InventoryPage, String
     if let Some(v) = q.max_size {
         sql.push_str(" AND size<=?");
         args.push(Box::new(v as i64))
+    }
+    if q.person.as_ref().is_some_and(|value| !value.trim().is_empty()) {
+        return Err("People filtering is unavailable in the native app until local face indexing is implemented".into());
     }
     let total = conn
         .query_row(

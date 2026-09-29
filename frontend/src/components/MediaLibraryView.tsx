@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, FileImage, FolderOpen, Search, X } from 'lucide-react';
-import { deletePeopleSearchIndex, fetchInventoryStats, fetchPeopleSearchStatus, fetchReviewedPeople, processMediaCaptions, queryInventory, saveMediaDescription, type InventoryItem, type InventoryPage, type InventoryStats, type PeopleSearchStatus, type ReviewedPerson } from '../services/api';
+import { deletePeopleSearchIndex, fetchInventoryStats, fetchPeopleSearchStatus, fetchReviewedPeople, isTauri, processMediaCaptions, queryInventory, saveMediaDescription, type InventoryItem, type InventoryPage, type InventoryStats, type PeopleSearchStatus, type ReviewedPerson } from '../services/api';
 
 interface Props {
   onClose: () => void;
@@ -154,7 +154,7 @@ export function MediaLibraryView({ onClose }: Props) {
         <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2"><CalendarDays className="w-4 h-4 text-zinc-500" /><input value={year} onChange={(event) => { setYear(event.target.value.replace(/\D/g, '').slice(0, 4)); setPageNumber(1); }} placeholder="Year" inputMode="numeric" className="bg-transparent text-sm text-white outline-none w-20" /></div>
         <input value={extension} onChange={(event) => { setExtension(event.target.value); setPageNumber(1); }} placeholder="Extension" className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white outline-none w-28" />
         <select value={state} onChange={(event) => { setState(event.target.value as 'available' | 'stale'); setPageNumber(1); }} className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-300 outline-none"><option value="available">Available</option><option value="stale">Stale</option></select>
-        {peopleSearch?.enabled && reviewedPeople.length > 0 && <select value={person} onChange={(event) => { setPerson(event.target.value); setPageNumber(1); }} className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-300 outline-none"><option value="">All reviewed people</option>{reviewedPeople.map((candidate) => <option key={candidate.id} value={candidate.label}>{candidate.label} ({candidate.media_count})</option>)}</select>}
+        {!isTauri && peopleSearch?.enabled && peopleSearch.state === 'ready' && reviewedPeople.length > 0 && <select value={person} onChange={(event) => { setPerson(event.target.value); setPageNumber(1); }} className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-300 outline-none"><option value="">All reviewed people</option>{reviewedPeople.map((candidate) => <option key={candidate.id} value={candidate.label}>{candidate.label} ({candidate.media_count})</option>)}</select>}
       </div>
 
       {error && <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-sm text-rose-300">{error}</div>}

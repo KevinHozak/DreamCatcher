@@ -177,8 +177,9 @@ def people_search_status(enabled: bool, index_path: Optional[Path] = None) -> di
         return {"enabled": True, "state": "not_ready", "message": "People search is enabled, but no approved local face runtime has produced an index.", "index_exists": False, "indexed_media": 0, "reviewed_people": 0, "last_run": None}
     conn = _connect(path)
     try:
-        last = conn.execute("SELECT value FROM people_index_meta WHERE key='last_run'").fetchone()
-        return {"enabled": True, "state": "ready", "message": "People search is available for reviewed local labels.", "index_exists": True, "indexed_media": conn.execute("SELECT COUNT(DISTINCT media_identity) FROM face_detections").fetchone()[0], "reviewed_people": conn.execute("SELECT COUNT(*) FROM people WHERE reviewed=1").fetchone()[0], "last_run": last[0] if last else None}
+        # Until a vetted runtime and indexing lifecycle exist, a database file
+        # (including manually supplied detections) must not claim readiness.
+        return {"enabled": True, "state": "not_ready", "message": "People search is enabled, but indexing is unavailable because no vetted local face runtime is configured. The existing derived database is not a usable index.", "index_exists": True, "indexed_media": 0, "reviewed_people": 0, "last_run": None}
     finally:
         conn.close()
 

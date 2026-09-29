@@ -23,13 +23,13 @@ pub fn status(app: &AppHandle, enabled: bool) -> Result<PeopleSearchStatus, Stri
     let exists = index_path(app)?.exists();
     Ok(PeopleSearchStatus {
         enabled,
-        state: if !enabled { "disabled" } else if exists { "ready" } else { "not_ready" }.to_string(),
+        // A database file alone does not prove that an approved runtime has
+        // produced a usable index. No native face-indexing runtime is shipped.
+        state: if !enabled { "disabled" } else { "not_ready" }.to_string(),
         message: if !enabled {
             "People search is disabled. No face processing or face-derived data is created.".to_string()
-        } else if exists {
-            "People search is available for reviewed local labels.".to_string()
         } else {
-            "People search is enabled, but no vetted local face runtime is configured yet.".to_string()
+            "People search is enabled, but indexing is unavailable because no vetted local face runtime is configured. An existing derived database is not a usable index.".to_string()
         },
         index_exists: exists,
         indexed_media: 0,

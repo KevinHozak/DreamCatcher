@@ -16,6 +16,16 @@ def test_enabled_people_search_reports_not_ready_without_runtime(tmp_path):
     assert "runtime" in status["message"]
 
 
+def test_existing_derived_database_is_not_reported_as_ready(tmp_path):
+    index = tmp_path / "people.sqlite3"
+    index.write_bytes(b"legacy or incomplete derived data")
+    status = people_search_status(True, index)
+    assert status["state"] == "not_ready"
+    assert status["index_exists"] is True
+    assert status["indexed_media"] == 0
+    assert "not a usable index" in status["message"]
+
+
 def test_people_search_index_can_be_deleted_independently(tmp_path):
     index = tmp_path / "people.sqlite3"
     index.write_bytes(b"derived face data")
