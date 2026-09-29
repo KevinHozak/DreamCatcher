@@ -49,7 +49,11 @@ backend endpoint or storage schema.
    representative Takeout: migration from legacy JSON, scans, filters,
    duplicates, settings persistence, file collision handling, and rollback.
    Record results and supported limitations before calling the media-library
-   epic done.
+   epic done. The partial preflight for issue #39 is recorded in
+   [`docs/release-verification-issue-39.md`](docs/release-verification-issue-39.md);
+   it built the 1.8.4 x64 installer and passed seven native unit tests, but did
+   not run the packaged UI workflows or a representative media fixture. Keep
+   release sign-off open until the interactive checks in that record are done.
 
 ### P1 — Finish useful non-biometric library workflows
 
