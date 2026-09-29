@@ -7,10 +7,13 @@ DreamCatcher uses one local SQLite database for indexed media metadata:
 `DREAMCATCHER_INVENTORY_PATH` environment variable may override this location
 for tests and controlled deployments.
 
-The Python backend and native Tauri runtime use the same schema. The canonical
-tables are `media_inventory`, `inventory_scans`, `inventory_diagnostics`, and
-`inventory_meta`. Duplicate groups remain derived review data and people-search
-data remains a separate derived store; neither changes canonical media records.
+The Python backend and native Tauri runtime use the same database path and
+canonical media tables: `media_inventory`, `inventory_scans`,
+`inventory_diagnostics`, and `inventory_meta`. The Python backend also creates a
+related `media_captions` table in this database. The native inventory query
+currently does not return caption fields. Duplicate review uses derived data;
+people-search data remains in a separate derived store. Neither changes
+canonical media records.
 
 ## Migration and recovery
 
@@ -25,4 +28,6 @@ Keep the generated backup until the database has been validated. Recovery is a
 manual, additive operation: preserve the SQLite file, restore or inspect the
 backup, and rerun the migration only against a new database after confirming
 the desired source data. SQLite WAL mode and a ten-second busy timeout support
-multiple readers and serialized local writers.
+multiple readers and serialized local writers. Test the actual packaged
+desktop/Python combination before promising concurrent access under sustained
+writes.

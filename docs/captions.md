@@ -38,6 +38,10 @@ keyframes at a fixed interval, maximum duration, and resource limits, and must
 retain the source media identity in the generated record. The current API
 returns a clear unavailable-runtime failure until such a runtime is configured.
 
-Useful endpoints are `GET /api/captions`, `PUT /api/captions/{identity}`, and
-`POST /api/captions/process`. None of these endpoints modifies, moves, renames,
-or deletes media files.
+The Python API endpoints are `GET /api/captions`, `PUT
+/api/captions/{identity}`, and `POST /api/captions/process`. The process endpoint
+currently has no configured generator, so generation attempts report an
+unavailable-runtime failure. The native Tauri library does not yet expose
+caption fields, editing, or processing; the frontend reports those operations
+as unavailable in native mode. None of the Python endpoints modifies, moves,
+renames, or deletes media files.

@@ -1,72 +1,90 @@
 # 🕸️ DreamCatcher
 
-> Local AI Photo Triage Cockpit powered by **Moondream** (Ollama), **Tauri v2**, and **Rust**.
+DreamCatcher is a local-first Windows desktop application for triaging photo
+archives and browsing indexed media. The desktop app uses **Tauri v2, React,
+TypeScript, and Rust**. It can use a locally installed Ollama service for vision
+classification; the Python/FastAPI backend remains available for development
+and selected API workflows.
 
-DreamCatcher eliminates the friction of organizing massive photo archives (like Google Photos Takeout). It pairs local computer vision with a focused, keyboard-driven triage deck to sift out utility screenshots, receipts, and labels from authentic family memories.
+## What works today
 
-Built as a lightweight, native Windows desktop application with zero external Python or backend server requirements.
+- **Photo triage:** scan a source folder, classify obvious documents/photos,
+  review ambiguous items in the Decision Deck, and organize approved photos
+  into chronological clusters.
+- **Safe file operations:** route output to configured picture/video folders,
+  avoid overwriting collisions, preserve supported Takeout sidecars, and roll
+  back completed triage using its ledger.
+- **Media Library:** scan picture and video roots into a shared local SQLite
+  inventory, browse/filter results, inspect metadata, and review duplicates.
+- **Descriptions:** import sidecar/embedded descriptions and edit them in the
+  Python-backed library workflow. Generated captions are unavailable until a
+  local caption model is configured; the desktop bridge does not yet expose
+  description editing or caption processing.
+- **People-search foundation:** settings, privacy boundaries, and derived face
+  record storage exist. No face-recognition runtime is shipped, so indexing
+  and actual face-based search are not ready.
 
----
+## Run the desktop app
 
-## 🌟 Core Features
+The launcher expects a previously built `DreamCatcher.exe` beside `start.bat`:
 
-- **Standalone Native Desktop App:** Bundled via Tauri v2 with a blazingly fast embedded Rust engine. Zero Python backend needed.
-- **Local Vision AI:** Analyzes photos 100% offline using **Moondream** directly via local Ollama (`http://127.0.0.1:11434`).
-- **The Clean Sweep:** Instantly batch-approves high-confidence receipts, paperwork, and screenshots.
-- **The Decision Deck:** Fast, distraction-free keyboard triage (`D` for Document, `F` for Family Photo) for ambiguous items.
-- **Event Clustering Studio:** Chronologically groups memories into holiday and event folders with auto-generated descriptions.
-- **Sidecar Preservation:** Automatically pairs and relocates `.json` and `.supplemental-metadata.json` sidecars alongside each image and video.
-- **Safe Execution & Rollback:** Collision avoidance naming (`_1`, `_2`) with full atomic rollback ledger support.
-
----
-
-## 🚀 Quickstart
-
-1. Ensure [Ollama](https://ollama.com/) is installed and running with `moondream`:
-   ```powershell
-   ollama pull moondream
-   ```
-2. Launch DreamCatcher:
-   ```powershell
-   .\start.bat
-   ```
-   *Alternatively, run from `frontend`:*
-   ```powershell
-   npm run desktop
-   ```
-
----
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                 DreamCatcher.exe (Tauri)                    │
-│                                                             │
-│   ┌─────────────────────────────────────────────────────┐   │
-│   │               React + Vite Frontend                 │   │
-│   │   Decision Deck • Clean Sweep • Clustering Studio   │   │
-│   └──────────────────────────┬──────────────────────────┘   │
-│                              │ Tauri IPC (In-Process)       │
-│   ┌──────────────────────────▼──────────────────────────┐   │
-│   │              Rust Local Engine (src-tauri)          │   │
-│   │   • scanner.rs    - EXIF, sidecars, filesystem scan │   │
-│   │   • classifier.rs - heuristics, Ollama vision, cache│   │
-│   │   • clustering.rs - events, holidays, geocoding     │   │
-│   │   • executor.rs   - file/sidecar moves, rollback    │   │
-│   │   • media.rs      - LRU thumbnail cache & protocol  │   │
-│   └──────────────────────────┬──────────────────────────┘   │
-└──────────────────────────────┼──────────────────────────────┘
-                               │ HTTP (127.0.0.1:11434)
-                               ▼
-                 ┌───────────────────────────┐
-                 │       Ollama Service      │
-                 │   (moondream / gemma3)    │
-                 └───────────────────────────┘
+```powershell
+.\start.bat
 ```
 
----
+For development, install the [Ollama desktop runtime](https://ollama.com/),
+start it, and pull the model used by the classifier:
 
-## 🗺️ Project Tracking
+```powershell
+ollama pull moondream
+```
 
-Concrete implementation tasks and phased epics are tracked on the [DreamCatcher Dev Project Board](https://github.com/KevinHozak/DreamCatcher/projects).
+Then run the Tauri development app:
+
+```powershell
+cd frontend
+npm install
+npm run desktop
+```
+
+The desktop app uses Ollama at `http://127.0.0.1:11434` for local vision
+classification. The optional Gemini path is remote and should only be selected
+when the user intends to send media for that processing.
+
+## Python API development
+
+The Python backend is a separate development/API path, not a dependency of the
+packaged desktop launcher:
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python main.py
+```
+
+It listens on `127.0.0.1:8080`. When using the browser frontend outside Tauri,
+start Vite from `frontend` as well. The Python and native paths do not have
+feature parity; see [the roadmap](implementation_plan.md).
+
+## Local data and safety
+
+- The canonical media inventory is SQLite at
+  `%LOCALAPPDATA%\DreamCatcher\inventory.sqlite3` on Windows. The native app
+  and Python backend share this location unless overridden for controlled
+  deployments.
+- People-search records, when created, live separately in
+  `%LOCALAPPDATA%\DreamCatcher\people-index.sqlite3`.
+- Inventory scans and indexing only record metadata. They do not change media
+  files. Triage execution is a distinct user-approved operation with collision
+  handling and rollback support.
+- See [inventory storage](docs/inventory-storage.md), [caption behavior](docs/captions.md),
+  [face-data privacy](docs/face-data-privacy.md), and
+  [people-search feasibility](docs/people-search-feasibility.md).
+
+## Project tracking
+
+The current issue list and roadmap are maintained in GitHub:
+[DreamCatcher issues](https://github.com/KevinHozak/DreamCatcher/issues) ·
+[development project board](https://github.com/KevinHozak/DreamCatcher/projects).
