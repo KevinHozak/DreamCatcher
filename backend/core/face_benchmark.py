@@ -133,21 +133,29 @@ def run_single_benchmark(
     process = psutil.Process(os.getpid())
     ram_baseline = process.memory_info().rss / (1024 * 1024)
 
+    def current_rss_mb() -> float:
+        return process.memory_info().rss / (1024 * 1024)
+
+    peak_observed_mb = ram_baseline
+
     verified_zero_network = False
     with assert_zero_network():
         t0 = time.perf_counter()
         session = ort.InferenceSession(model_bytes, providers=[provider])
+        peak_observed_mb = max(peak_observed_mb, current_rss_mb())
         input_name = session.get_inputs()[0].name
         
         # Cold start inference
         dummy_input = np.random.randn(*input_shape).astype(np.float32)
         _ = session.run(None, {input_name: dummy_input})
         cold_start_ms = (time.perf_counter() - t0) * 1000.0
+        peak_observed_mb = max(peak_observed_mb, current_rss_mb())
         verified_zero_network = True
 
     # Warmup
     for _ in range(warmup_runs):
         session.run(None, {input_name: dummy_input})
+    peak_observed_mb = max(peak_observed_mb, current_rss_mb())
 
     # Warm single-image runs
     latencies = []
@@ -155,6 +163,7 @@ def run_single_benchmark(
         t_start = time.perf_counter()
         session.run(None, {input_name: dummy_input})
         latencies.append((time.perf_counter() - t_start) * 1000.0)
+    peak_observed_mb = max(peak_observed_mb, current_rss_mb())
 
     warm_avg_ms = float(np.mean(latencies))
     p95_ms = float(np.percentile(latencies, 95))
@@ -163,14 +172,13 @@ def run_single_benchmark(
     # Batch run
     batch_shape = (batch_size, input_shape[1], input_shape[2], input_shape[3])
     batch_input = np.random.randn(*batch_shape).astype(np.float32)
-    # Re-run or run with batch input if model allows dynamic or build batch model
-    # To benchmark batch throughput accurately for fixed batch:
     t_batch_start = time.perf_counter()
     for _ in range(batch_size):
         session.run(None, {input_name: dummy_input})
     batch_latency_ms = (time.perf_counter() - t_batch_start) * 1000.0
+    peak_observed_mb = max(peak_observed_mb, current_rss_mb())
 
-    ram_peak = process.memory_info().rss / (1024 * 1024)
+    ram_peak = peak_observed_mb
     ram_delta = max(0.0, ram_peak - ram_baseline)
 
     return BenchmarkRunResult(
