@@ -25,27 +25,31 @@ def _utc_now() -> str:
 def _connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS people_index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS people (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, reviewed INTEGER NOT NULL DEFAULT 0 CHECK(reviewed IN (0,1)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_people_reviewed_label ON people(label) WHERE reviewed=1;
-        CREATE TABLE IF NOT EXISTS face_clusters (id INTEGER PRIMARY KEY AUTOINCREMENT, cluster_key TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'candidate' CHECK(status IN ('candidate','confirmed','rejected','ignored')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS face_detections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, media_identity TEXT NOT NULL, media_path TEXT NOT NULL,
-            region_left REAL NOT NULL, region_top REAL NOT NULL, region_right REAL NOT NULL, region_bottom REAL NOT NULL,
-            confidence REAL, review_state TEXT NOT NULL DEFAULT 'candidate' CHECK(review_state IN ('candidate','confirmed','rejected','ignored')),
-            cluster_id INTEGER REFERENCES face_clusters(id) ON DELETE SET NULL, person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
-            source TEXT NOT NULL, model_version TEXT NOT NULL, runtime_version TEXT NOT NULL, detected_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-            UNIQUE(media_identity, region_left, region_top, region_right, region_bottom, model_version)
-        );
-        CREATE INDEX IF NOT EXISTS idx_detections_media ON face_detections(media_identity);
-        CREATE INDEX IF NOT EXISTS idx_detections_person ON face_detections(person_id);
-        CREATE TABLE IF NOT EXISTS face_embeddings (detection_id INTEGER PRIMARY KEY REFERENCES face_detections(id) ON DELETE CASCADE, embedding BLOB NOT NULL, created_at TEXT NOT NULL);
-    """)
-    conn.execute("INSERT OR REPLACE INTO people_index_meta(key,value) VALUES('schema_version',?)", (str(SCHEMA_VERSION),))
-    return conn
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS people_index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS people (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, reviewed INTEGER NOT NULL DEFAULT 0 CHECK(reviewed IN (0,1)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_people_reviewed_label ON people(label) WHERE reviewed=1;
+            CREATE TABLE IF NOT EXISTS face_clusters (id INTEGER PRIMARY KEY AUTOINCREMENT, cluster_key TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'candidate' CHECK(status IN ('candidate','confirmed','rejected','ignored')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS face_detections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, media_identity TEXT NOT NULL, media_path TEXT NOT NULL,
+                region_left REAL NOT NULL, region_top REAL NOT NULL, region_right REAL NOT NULL, region_bottom REAL NOT NULL,
+                confidence REAL, review_state TEXT NOT NULL DEFAULT 'candidate' CHECK(review_state IN ('candidate','confirmed','rejected','ignored')),
+                cluster_id INTEGER REFERENCES face_clusters(id) ON DELETE SET NULL, person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+                source TEXT NOT NULL, model_version TEXT NOT NULL, runtime_version TEXT NOT NULL, detected_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                UNIQUE(media_identity, region_left, region_top, region_right, region_bottom, model_version)
+            );
+            CREATE INDEX IF NOT EXISTS idx_detections_media ON face_detections(media_identity);
+            CREATE INDEX IF NOT EXISTS idx_detections_person ON face_detections(person_id);
+            CREATE TABLE IF NOT EXISTS face_embeddings (detection_id INTEGER PRIMARY KEY REFERENCES face_detections(id) ON DELETE CASCADE, embedding BLOB NOT NULL, created_at TEXT NOT NULL);
+        """)
+        conn.execute("INSERT OR REPLACE INTO people_index_meta(key,value) VALUES('schema_version',?)", (str(SCHEMA_VERSION),))
+        return conn
+    except Exception:
+        conn.close()
+        raise
 
 
 def _validate_region(region: dict) -> tuple[float, float, float, float]:

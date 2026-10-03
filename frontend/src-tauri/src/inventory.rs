@@ -280,6 +280,10 @@ pub fn scan(
 
 pub fn stats(app: &AppHandle) -> Result<InventoryStats, String> {
     let conn = open_for_app(app)?;
+    stats_connection(&conn)
+}
+
+fn stats_connection(conn: &Connection) -> Result<InventoryStats, String> {
     let mut out = InventoryStats::default();
     let mut st=conn.prepare("SELECT media_type,state,COUNT(*),COALESCE(SUM(size),0) FROM media_inventory GROUP BY media_type,state").map_err(|e|e.to_string())?;
     for row in st
@@ -675,5 +679,117 @@ mod tests {
             }
         }
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_legacy_json_migration_backup_and_repeat_open() {
+        let dir = std::env::temp_dir().join(format!(
+            "dc-migration-test-{}",
+            Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("inventory.sqlite3");
+        let json_path = dir.join("inventory.json");
+
+        let legacy_data = serde_json::json!({
+            "records": [
+                {
+                    "identity": "legacy-pic-1",
+                    "path": "2024/Jan/photo1.jpg",
+                    "root_kind": "pictures",
+                    "media_type": "picture",
+                    "extension": ".jpg",
+                    "size": 10240,
+                    "timestamp": "2024-01-15T10:00:00Z",
+                    "is_undated": false,
+                    "has_sidecar": true,
+                    "has_gps": true,
+                    "last_seen_scan": "scan-legacy-1",
+                    "state": "available"
+                },
+                {
+                    "identity": "legacy-vid-1",
+                    "path": "2024/Jan/video1.mp4",
+                    "root_kind": "videos",
+                    "media_type": "video",
+                    "extension": ".mp4",
+                    "size": 1048576,
+                    "timestamp": "2024-01-16T12:00:00Z",
+                    "is_undated": false,
+                    "has_sidecar": false,
+                    "has_gps": false,
+                    "last_seen_scan": "scan-legacy-1",
+                    "state": "available"
+                }
+            ],
+            "scans": [
+                {
+                    "scan_id": "scan-legacy-1",
+                    "root_kind": "pictures",
+                    "root_path": "C:\\Takeout\\Pictures",
+                    "status": "completed",
+                    "discovered": 2,
+                    "indexed": 2,
+                    "skipped": 0,
+                    "completed_at": "2024-01-16T12:30:00Z"
+                }
+            ]
+        });
+        fs::write(&json_path, serde_json::to_string_pretty(&legacy_data).unwrap()).unwrap();
+
+        // 1. Initial connect migrates data and creates backup
+        {
+            let conn = connect(&db_path, Some(&json_path)).expect("initial migration connect failed");
+            let pic_page = query_connection(&conn, InventoryQuery {
+                root_kind: "pictures".into(),
+                ..Default::default()
+            }).expect("failed to query pictures");
+            assert_eq!(pic_page.total, 1);
+            assert_eq!(pic_page.items[0].identity, "legacy-pic-1");
+
+            let vid_page = query_connection(&conn, InventoryQuery {
+                root_kind: "videos".into(),
+                ..Default::default()
+            }).expect("failed to query videos");
+            assert_eq!(vid_page.total, 1);
+            assert_eq!(vid_page.items[0].identity, "legacy-vid-1");
+
+            // Verify backup was created
+            let backup_path_str: String = conn.query_row(
+                "SELECT value FROM inventory_meta WHERE key='legacy_migration_backup'",
+                [],
+                |r| r.get(0)
+            ).expect("legacy_migration_backup meta not found");
+            let backup_path = PathBuf::from(&backup_path_str);
+            assert!(backup_path.exists(), "Backup file was not created: {:?}", backup_path);
+            let backup_content = fs::read_to_string(&backup_path).unwrap();
+            let original_content = fs::read_to_string(&json_path).unwrap();
+            assert_eq!(backup_content, original_content, "Backup content must match original legacy json");
+            assert!(json_path.exists(), "Original legacy json must remain intact");
+
+            // Verify unsupported person filter returns explicit error
+            let person_err = query_connection(&conn, InventoryQuery {
+                root_kind: "pictures".into(),
+                person: Some("Alice".into()),
+                ..Default::default()
+            }).unwrap_err();
+            assert!(person_err.contains("People filtering is unavailable in the native app until local face indexing is implemented"));
+        }
+
+        // 2. Repeat open is safe, idempotent, and does not duplicate records
+        {
+            let conn = connect(&db_path, Some(&json_path)).expect("repeat connect failed");
+            let pic_page = query_connection(&conn, InventoryQuery {
+                root_kind: "pictures".into(),
+                ..Default::default()
+            }).expect("failed to query pictures after repeat open");
+            assert_eq!(pic_page.total, 1);
+
+            let stats = stats_connection(&conn).expect("failed to get stats");
+            assert_eq!(stats.pictures_count, 1);
+            assert_eq!(stats.videos_count, 1);
+        }
+
+        let _ = fs::remove_dir_all(dir);
     }
 }

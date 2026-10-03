@@ -141,4 +141,57 @@ mod tests {
         assert!(result.unwrap_err().contains("cannot contain one another"));
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn test_settings_persistence_and_no_filesystem_mutation() {
+        let root = std::env::temp_dir().join(format!("dreamcatcher-settings-mutate-{}", std::process::id()));
+        let source = root.join("source");
+        let pictures = root.join("pictures");
+        let videos = root.join("videos");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&pictures).unwrap();
+        fs::create_dir_all(&videos).unwrap();
+
+        // Place test files in each directory
+        let f1 = source.join("dummy_source.jpg");
+        let f2 = pictures.join("dummy_pic.jpg");
+        let f3 = videos.join("dummy_vid.mp4");
+        fs::write(&f1, b"source file").unwrap();
+        fs::write(&f2, b"pic file").unwrap();
+        fs::write(&f3, b"vid file").unwrap();
+
+        let m1 = fs::metadata(&f1).unwrap().modified().unwrap();
+        let m2 = fs::metadata(&f2).unwrap().modified().unwrap();
+        let m3 = fs::metadata(&f3).unwrap().modified().unwrap();
+
+        let settings_file = root.join("settings.json");
+        let original_settings = AppSettings {
+            source_dir: source.to_string_lossy().to_string(),
+            pictures_dir: Some(pictures.to_string_lossy().to_string()),
+            videos_dir: Some(videos.to_string_lossy().to_string()),
+            people_search_enabled: true,
+        };
+
+        // Save settings
+        let saved = save(&settings_file, &original_settings).expect("save failed");
+        assert_eq!(saved, original_settings);
+        assert!(settings_file.exists());
+
+        // Verify simulated restart loads the exact same settings
+        let loaded = load(&settings_file).expect("load failed");
+        assert_eq!(loaded, original_settings);
+
+        // Verify none of the files in source, pictures, or videos were moved or modified
+        assert!(f1.exists());
+        assert!(f2.exists());
+        assert!(f3.exists());
+        assert_eq!(fs::read(&f1).unwrap(), b"source file");
+        assert_eq!(fs::read(&f2).unwrap(), b"pic file");
+        assert_eq!(fs::read(&f3).unwrap(), b"vid file");
+        assert_eq!(fs::metadata(&f1).unwrap().modified().unwrap(), m1);
+        assert_eq!(fs::metadata(&f2).unwrap().modified().unwrap(), m2);
+        assert_eq!(fs::metadata(&f3).unwrap().modified().unwrap(), m3);
+
+        let _ = fs::remove_dir_all(root);
+    }
 }
