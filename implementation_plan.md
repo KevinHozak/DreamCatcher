@@ -100,3 +100,13 @@ not a substitute for updating issue bodies/statuses after verification.
 - Keep date, scope, and status claims evidence-backed; use “deferred” or
   “not implemented” where a schema/API alone could otherwise sound complete.
 - Update this roadmap after issue/PR merges and verify the GitHub read-back.
+
+# Issue #51 implementation plan
+
+User review required: none before implementing the authorized review-only benchmark scope.
+
+- Record native analysis, SQLite fixture indexing, review pagination, exclusion, export, and process memory metrics at 5,000 and 50,000 synthetic files.
+- Dispatch native duplicate work on blocking workers and serialize review-store operations.
+- Bound rendered groups and members; export every group as a review-only JSON download.
+- Verify byte-for-byte media preservation after analysis, exclusions, export, and reanalysis.
+- Run native regression tests, scale benchmarks, frontend build, and lint. Document synthetic-fixture and interactive-UI limits.
