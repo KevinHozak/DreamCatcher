@@ -206,7 +206,10 @@ export async function queryInventory(query: InventoryQuery): Promise<InventoryPa
 }
 
 export async function saveMediaDescription(identity: string, description: string | null): Promise<void> {
-  if (isTauri) throw new Error('Caption editing is not yet available in the native inventory bridge');
+  if (isTauri) {
+    await invoke('save_media_description', { identity, description });
+    return;
+  }
   const res = await fetch(`${API_BASE}/api/captions/${encodeURIComponent(identity)}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description }),
   });

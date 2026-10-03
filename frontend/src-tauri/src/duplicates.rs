@@ -91,6 +91,7 @@ pub fn analyze(app: &AppHandle) -> Result<serde_json::Value, String> {
                 has_gps: row.get::<_, i64>(9)? != 0,
                 last_seen_scan: row.get(10)?,
                 state: row.get(11)?,
+                ..Default::default()
             })
         })
         .map_err(|e| e.to_string())?

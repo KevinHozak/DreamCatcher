@@ -319,6 +319,11 @@ fn query_inventory(app: AppHandle, query: inventory::InventoryQuery) -> Result<i
 }
 
 #[tauri::command]
+fn save_media_description(app: AppHandle, identity: String, description: Option<String>) -> Result<(), String> {
+    inventory::save_description(&app, identity, description)
+}
+
+#[tauri::command]
 fn analyze_duplicates(app: AppHandle) -> Result<serde_json::Value, String> { duplicates::analyze(&app) }
 
 #[tauri::command]
@@ -423,6 +428,7 @@ pub fn run() {
             scan_inventory,
             get_inventory_stats,
             query_inventory,
+            save_media_description,
             analyze_duplicates,
             get_duplicate_groups,
             exclude_duplicate_member,
