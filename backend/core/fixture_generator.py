@@ -147,6 +147,7 @@ def generate_synthetic_takeout_fixture(
     clean: bool = False,
     generate_destinations: bool = True,
     generate_legacy_inventory: bool = True,
+    generated_at: Optional[str] = None,
 ) -> dict:
     """
     Deterministically generates a complete synthetic Google Photos Takeout media fixture
@@ -406,8 +407,7 @@ def generate_synthetic_takeout_fixture(
     manifest = {
         "generator_version": "1.0.0",
         "seed": seed,
-        "generated_at": _utc_iso(datetime.now(timezone.utc)),
-        "target_directory": str(target_dir),
+        "generated_at": generated_at or "2024-01-15T12:00:00+00:00",
         "counts": counts,
         "duplicate_groups": multi_duplicates,
         "expected_collisions": expected_collisions,

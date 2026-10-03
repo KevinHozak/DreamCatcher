@@ -42,6 +42,13 @@ def test_generator_determinism_and_reproducibility(tmp_path):
         assert file_a.exists() and file_b.exists()
         assert compute_sha256(file_a) == compute_sha256(file_b)
 
+    # 3. Verify fixture_manifest.json itself is identical bit-for-bit and location-independent
+    manifest_file_a = dir_a / "fixture_manifest.json"
+    manifest_file_b = dir_b / "fixture_manifest.json"
+    assert manifest_file_a.exists() and manifest_file_b.exists()
+    assert manifest_file_a.read_text(encoding="utf-8") == manifest_file_b.read_text(encoding="utf-8")
+    assert compute_sha256(manifest_file_a) == compute_sha256(manifest_file_b)
+
 
 def test_media_format_and_sidecar_validity(tmp_path):
     fixture_dir = tmp_path / "fixture_validity"
