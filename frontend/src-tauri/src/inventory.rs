@@ -334,6 +334,7 @@ fn query_connection(conn: &Connection, q: InventoryQuery) -> Result<InventoryPag
         sql.push_str(" AND timestamp LIKE ?");
         args.push(Box::new(format!("{v:04}-%")))
     }
+    // Match the API range contract: inclusive start, exclusive end.
     if let Some(v) = q.date_from {
         sql.push_str(" AND timestamp>=?");
         args.push(Box::new(v))
@@ -422,6 +423,187 @@ fn save_description_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn date_ranges_and_combined_filters_use_native_sqlite() {
+        let path = std::env::temp_dir().join(format!(
+            "dc-dates-{}.sqlite3",
+            Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let conn = connect(&path, None).unwrap();
+        for (identity, timestamp, extension, size, root_kind, state) in [
+            (
+                "previous",
+                "2023-12-31T23:59:59Z",
+                ".jpg",
+                150,
+                "pictures",
+                "available",
+            ),
+            (
+                "start",
+                "2024-01-01T00:00:00Z",
+                ".jpg",
+                100,
+                "pictures",
+                "available",
+            ),
+            (
+                "middle",
+                "2024-01-15T12:00:00Z",
+                ".jpg",
+                200,
+                "pictures",
+                "available",
+            ),
+            (
+                "png",
+                "2024-01-15T12:00:00Z",
+                ".png",
+                150,
+                "pictures",
+                "available",
+            ),
+            (
+                "small",
+                "2024-01-15T12:00:00Z",
+                ".jpg",
+                99,
+                "pictures",
+                "available",
+            ),
+            (
+                "large",
+                "2024-01-15T12:00:00Z",
+                ".jpg",
+                201,
+                "pictures",
+                "available",
+            ),
+            (
+                "video",
+                "2024-01-15T12:00:00Z",
+                ".jpg",
+                150,
+                "videos",
+                "available",
+            ),
+            (
+                "stale",
+                "2024-01-15T12:00:00Z",
+                ".jpg",
+                150,
+                "pictures",
+                "stale",
+            ),
+            (
+                "end",
+                "2024-02-01T00:00:00Z",
+                ".jpg",
+                150,
+                "pictures",
+                "available",
+            ),
+            (
+                "next_year",
+                "2025-01-15T12:00:00Z",
+                ".jpg",
+                150,
+                "pictures",
+                "available",
+            ),
+        ] {
+            upsert_record(
+                &conn,
+                &InventoryRecord {
+                    identity: identity.into(),
+                    path: format!("{identity}{extension}"),
+                    timestamp: timestamp.into(),
+                    extension: extension.into(),
+                    size,
+                    root_kind: root_kind.into(),
+                    state: state.into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        let base = || InventoryQuery {
+            root_kind: "pictures".into(),
+            ..Default::default()
+        };
+        let ids = |q| {
+            query_connection(&conn, q)
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|r| r.identity)
+                .collect::<Vec<_>>()
+        };
+        let range = || InventoryQuery {
+            date_from: Some("2024-01-01".into()),
+            date_to: Some("2024-02-01".into()),
+            ..base()
+        };
+        let range_ids = ids(range());
+        assert_eq!(range_ids.len(), 5);
+        assert!(range_ids.contains(&"start".into()));
+        assert!(!range_ids.contains(&"end".into()));
+        assert_eq!(
+            ids(InventoryQuery {
+                date_from: Some("2025-01-01".into()),
+                ..base()
+            }),
+            vec!["next_year"]
+        );
+        assert_eq!(
+            ids(InventoryQuery {
+                date_to: Some("2024-01-01".into()),
+                ..base()
+            }),
+            vec!["previous"]
+        );
+        assert!(ids(InventoryQuery {
+            date_from: Some("2024-02-01".into()),
+            date_to: Some("2024-02-01".into()),
+            ..base()
+        })
+        .is_empty());
+        assert_eq!(
+            ids(InventoryQuery {
+                date_from: Some("2024-01-01T00:00:00Z".into()),
+                date_to: Some("2024-01-15T12:00:00Z".into()),
+                ..base()
+            }),
+            vec!["start"]
+        );
+        let combined = || InventoryQuery {
+            year: Some(2024),
+            extension: Some("JPG".into()),
+            min_size: Some(100),
+            max_size: Some(200),
+            ..range()
+        };
+        assert_eq!(ids(combined()), vec!["middle", "start"]);
+        assert!(ids(InventoryQuery {
+            year: Some(2023),
+            ..combined()
+        })
+        .is_empty());
+        let paged = query_connection(
+            &conn,
+            InventoryQuery {
+                page: Some(2),
+                page_size: Some(1),
+                ..combined()
+            },
+        )
+        .unwrap();
+        assert_eq!(paged.total, 2);
+        assert_eq!(paged.items[0].identity, "start");
+        drop(conn);
+        fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn descriptions_persist_across_reopen_and_rescan() {
         let path = std::env::temp_dir().join(format!(

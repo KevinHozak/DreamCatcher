@@ -24,6 +24,8 @@ export function MediaLibraryView({ onClose }: Props) {
   const [rootKind, setRootKind] = useState<'pictures' | 'videos'>('pictures');
   const [search, setSearch] = useState('');
   const [year, setYear] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [extension, setExtension] = useState('');
   const [state, setState] = useState<'available' | 'stale'>('available');
   const [page, setPage] = useState<InventoryPage | null>(null);
@@ -51,26 +53,32 @@ export function MediaLibraryView({ onClose }: Props) {
   };
 
   useEffect(() => {
+    let cancelled = false;
     queryInventory({
       rootKind,
       search,
       year: year ? Number(year) : undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
       extension,
       state,
       person: person || undefined,
       page: pageNumber,
       pageSize: PAGE_SIZE,
     })
-      .then(setPage)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load media library'))
-      .finally(() => setLoading(false));
-  }, [rootKind, search, year, extension, state, person, pageNumber]);
+      .then((result) => { if (!cancelled) { setPage(result); setError(null); } })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load media library'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [rootKind, search, year, dateFrom, dateTo, extension, state, person, pageNumber]);
 
   const totalPages = page ? Math.max(1, Math.ceil(page.total / PAGE_SIZE)) : 1;
 
   const clearFilters = () => {
     setSearch('');
     setYear('');
+    setDateFrom('');
+    setDateTo('');
     setExtension('');
     setState('available');
     setPerson('');
@@ -82,7 +90,7 @@ export function MediaLibraryView({ onClose }: Props) {
     try {
       await processMediaCaptions(rootKind);
       setPageNumber((value) => value);
-      const refreshed = await queryInventory({ rootKind, search, year: year ? Number(year) : undefined, extension, state, person: person || undefined, page: pageNumber, pageSize: PAGE_SIZE });
+      const refreshed = await queryInventory({ rootKind, search, year: year ? Number(year) : undefined, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, extension, state, person: person || undefined, page: pageNumber, pageSize: PAGE_SIZE });
       setPage(refreshed);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Caption processing is unavailable');
@@ -152,6 +160,8 @@ export function MediaLibraryView({ onClose }: Props) {
           <input value={search} onChange={(event) => { setSearch(event.target.value); setPageNumber(1); }} placeholder="Search filename or path" className="bg-transparent text-sm text-white outline-none w-full" />
         </div>
         <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2"><CalendarDays className="w-4 h-4 text-zinc-500" /><input value={year} onChange={(event) => { setYear(event.target.value.replace(/\D/g, '').slice(0, 4)); setPageNumber(1); }} placeholder="Year" inputMode="numeric" className="bg-transparent text-sm text-white outline-none w-20" /></div>
+        <label className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-400">From date<input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPageNumber(1); }} className="bg-transparent text-sm text-white outline-none [color-scheme:dark]" /></label>
+        <label className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-400">Before date<input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPageNumber(1); }} className="bg-transparent text-sm text-white outline-none [color-scheme:dark]" /></label>
         <input value={extension} onChange={(event) => { setExtension(event.target.value); setPageNumber(1); }} placeholder="Extension" className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-white outline-none w-28" />
         <select value={state} onChange={(event) => { setState(event.target.value as 'available' | 'stale'); setPageNumber(1); }} className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-300 outline-none"><option value="available">Available</option><option value="stale">Stale</option></select>
         {!isTauri && peopleSearch?.enabled && peopleSearch.state === 'ready' && reviewedPeople.length > 0 && <select value={person} onChange={(event) => { setPerson(event.target.value); setPageNumber(1); }} className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-300 outline-none"><option value="">All reviewed people</option>{reviewedPeople.map((candidate) => <option key={candidate.id} value={candidate.label}>{candidate.label} ({candidate.media_count})</option>)}</select>}
