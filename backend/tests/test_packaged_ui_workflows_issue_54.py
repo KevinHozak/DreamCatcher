@@ -271,6 +271,29 @@ def test_synthetic_fixture_triage_collision_and_atomic_rollback(tmp_path):
         },
     }
 
+    # 1. Drive collision checks through the native Rust executor (the core engine of the packaged Tauri desktop UI)
+    project_root = Path(__file__).resolve().parent.parent.parent
+    cargo_bin = Path(os.environ.get("USERPROFILE", "")) / ".cargo" / "bin" / "cargo.exe"
+    cargo_cmd = str(cargo_bin) if cargo_bin.exists() else "cargo"
+    cargo_toml = project_root / "frontend" / "src-tauri" / "Cargo.toml"
+
+    cargo_res = subprocess.run(
+        [
+            cargo_cmd,
+            "test",
+            "--release",
+            "--manifest-path",
+            str(cargo_toml),
+            "--",
+            "executor::tests",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert cargo_res.returncode == 0, f"Native Rust executor tests failed:\n{cargo_res.stdout}\n{cargo_res.stderr}"
+    assert "test executor::tests::test_collision_handling_and_rollback_restores_media_and_sidecars ... ok" in cargo_res.stdout
+
+    # 2. Cross-runtime verification: execute triage plan and rollback on the synthetic fixture
     exec_res = execute_triage_plan(
         source_dir,
         decisions,
