@@ -171,7 +171,7 @@ def process_captions(
     """Process missing/generated captions and return resumable batch counts."""
     ensure_caption_schema(db)
     rows = db.execute(
-        """SELECT m.identity,m.path,c.source,c.status FROM media_inventory m
+        """SELECT m.identity,m.path,c.source,c.status,c.description FROM media_inventory m
            LEFT JOIN media_captions c ON c.identity=m.identity
            WHERE m.root_kind=? AND m.state='available'""", (root_kind,)
     ).fetchall()
@@ -181,7 +181,11 @@ def process_captions(
             result["status"] = "cancelled"
             result["cancelled"] += 1
             break
-        if row[2] == "user" or (row[2] in {"embedded", "sidecar", "generated"} and not rebuild):
+        source = row[2]
+        status = row[3]
+        existing_desc = row[4]
+        has_caption = status == "complete" or bool(existing_desc and str(existing_desc).strip())
+        if source == "user" or (has_caption and not rebuild):
             result["skipped"] += 1
             continue
         db.execute("INSERT OR IGNORE INTO media_captions(identity,status,updated_at) VALUES(?,?,?)", (row[0], "queued", _now()))
