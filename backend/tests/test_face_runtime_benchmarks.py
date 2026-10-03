@@ -1,5 +1,8 @@
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.face_benchmark import execute_full_suite, evaluate_false_positive_tendencies, assert_zero_network
 
