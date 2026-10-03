@@ -41,8 +41,12 @@ pub fn status(app: &AppHandle, enabled: bool) -> Result<PeopleSearchStatus, Stri
 #[tauri::command]
 pub fn delete_index(app: &AppHandle) -> Result<serde_json::Value, String> {
     let path = index_path(app)?;
-    if path.exists() {
-        fs::remove_file(path).map_err(|e| format!("Could not delete people-search index: {e}"))?;
+    let base_str = path.to_string_lossy();
+    for suffix in ["", "-wal", "-shm"] {
+        let candidate = PathBuf::from(format!("{base_str}{suffix}"));
+        if candidate.exists() {
+            fs::remove_file(&candidate).map_err(|e| format!("Could not delete people-search file {}: {e}", candidate.display()))?;
+        }
     }
     Ok(serde_json::json!({ "deleted": true }))
 }
