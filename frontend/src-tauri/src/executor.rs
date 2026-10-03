@@ -371,3 +371,133 @@ pub fn rollback_triage_plan(source_dir: &Path) -> Result<RollbackResult, String>
         ledger_backup: Some(bak_ledger.to_string_lossy().to_string()),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+
+    fn sha256_file(path: &Path) -> String {
+        let bytes = fs::read(path).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        format!("{:x}", hasher.finalize())
+    }
+
+    #[test]
+    fn test_collision_handling_and_rollback_restores_media_and_sidecars() {
+        let root = std::env::temp_dir().join(format!("dc-executor-test-{}", std::process::id()));
+        let source = root.join("source");
+        let pictures = root.join("pictures");
+        let videos = root.join("videos");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&pictures).unwrap();
+        fs::create_dir_all(&videos).unwrap();
+
+        // Create pre-existing file in pictures/Daily Life with name photo.jpg to trigger collision
+        let existing_dest_dir = pictures.join("Daily Life");
+        fs::create_dir_all(&existing_dest_dir).unwrap();
+        let existing_dest_file = existing_dest_dir.join("photo.jpg");
+        fs::write(&existing_dest_file, b"EXISTING PRE-COLLISION FILE CONTENT").unwrap();
+        let existing_hash_before = sha256_file(&existing_dest_file);
+
+        // Also create pre-existing sidecar in destination
+        let existing_dest_sidecar = existing_dest_dir.join("photo.jpg.supplemental-metadata.json");
+        fs::write(&existing_dest_sidecar, b"EXISTING PRE-COLLISION SIDECAR CONTENT").unwrap();
+        let existing_sidecar_hash_before = sha256_file(&existing_dest_sidecar);
+
+        // Create source photo and sidecar
+        let src_photo = source.join("photo.jpg");
+        fs::write(&src_photo, b"NEW SOURCE PHOTO CONTENT").unwrap();
+        let src_photo_hash = sha256_file(&src_photo);
+
+        let src_sidecar = source.join("photo.jpg.supplemental-metadata.json");
+        fs::write(&src_sidecar, b"SOURCE SIDECAR JSON CONTENT").unwrap();
+        let src_sidecar_hash = sha256_file(&src_sidecar);
+
+        // Create source video
+        let src_video = source.join("clip.mp4");
+        fs::write(&src_video, b"SOURCE VIDEO CONTENT").unwrap();
+        let src_video_hash = sha256_file(&src_video);
+
+        let mut decisions = HashMap::new();
+        decisions.insert("photo-1".to_string(), DecisionInfo {
+            path: src_photo.to_string_lossy().to_string(),
+            category: "PHOTO".to_string(),
+            is_video: false,
+            folder_name: Some("Daily Life".to_string()),
+            month_str: Some("2024-01".to_string()),
+            has_sidecar: true,
+            sidecar_path: Some(src_sidecar.to_string_lossy().to_string()),
+        });
+        decisions.insert("video-1".to_string(), DecisionInfo {
+            path: src_video.to_string_lossy().to_string(),
+            category: "VIDEO".to_string(),
+            is_video: true,
+            folder_name: Some("Vacation".to_string()),
+            month_str: Some("2024-01".to_string()),
+            has_sidecar: false,
+            sidecar_path: None,
+        });
+
+        // Execute triage with move action
+        let exec_result = execute_triage_plan(
+            &source,
+            decisions,
+            "move",
+            Some(pictures.clone()),
+            Some(videos.clone()),
+        ).expect("execute triage plan failed");
+
+        assert!(exec_result.success);
+        assert_eq!(exec_result.moved, 2);
+        assert_eq!(exec_result.errors, 0);
+
+        // 1. Confirm pre-existing file and sidecar in destination were NOT overwritten
+        assert_eq!(sha256_file(&existing_dest_file), existing_hash_before, "Existing destination file was overwritten!");
+        assert_eq!(sha256_file(&existing_dest_sidecar), existing_sidecar_hash_before, "Existing destination sidecar was overwritten!");
+
+        // 2. Confirm collision resolution generated photo_1.jpg and photo_1.jpg.supplemental-metadata.json
+        let collided_photo = existing_dest_dir.join("photo_1.jpg");
+        assert!(collided_photo.exists(), "Collided photo not created as photo_1.jpg");
+        assert_eq!(sha256_file(&collided_photo), src_photo_hash);
+
+        let collided_sidecar = existing_dest_dir.join("photo_1.jpg.supplemental-metadata.json");
+        assert!(collided_sidecar.exists(), "Collided sidecar not renamed appropriately");
+        assert_eq!(sha256_file(&collided_sidecar), src_sidecar_hash);
+
+        // Confirm video was moved to videos/Vacation/clip.mp4
+        let dest_video = videos.join("Vacation").join("clip.mp4");
+        assert!(dest_video.exists(), "Destination video not found");
+        assert_eq!(sha256_file(&dest_video), src_video_hash);
+
+        // Source files should no longer be in source
+        assert!(!src_photo.exists());
+        assert!(!src_sidecar.exists());
+        assert!(!src_video.exists());
+
+        // 3. Rollback triage plan
+        let rollback_result = rollback_triage_plan(&source).expect("rollback triage failed");
+        assert!(rollback_result.success);
+        assert_eq!(rollback_result.restored_items, 2);
+        assert_eq!(rollback_result.restored_sidecars, 1);
+        assert_eq!(rollback_result.errors, 0);
+
+        // 4. Confirm source files and sidecars are restored with identical hashes
+        assert!(src_photo.exists());
+        assert_eq!(sha256_file(&src_photo), src_photo_hash);
+        assert!(src_sidecar.exists());
+        assert_eq!(sha256_file(&src_sidecar), src_sidecar_hash);
+        assert!(src_video.exists());
+        assert_eq!(sha256_file(&src_video), src_video_hash);
+
+        // 5. Confirm existing destination file is still intact and collided items are gone
+        assert_eq!(sha256_file(&existing_dest_file), existing_hash_before);
+        assert_eq!(sha256_file(&existing_dest_sidecar), existing_sidecar_hash_before);
+        assert!(!collided_photo.exists());
+        assert!(!collided_sidecar.exists());
+        assert!(!dest_video.exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+}

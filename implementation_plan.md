@@ -49,11 +49,11 @@ backend endpoint or storage schema.
    representative Takeout: migration from legacy JSON, scans, filters,
    duplicates, settings persistence, file collision handling, and rollback.
    Record results and supported limitations before calling the media-library
-   epic done. The partial preflight for issue #39 is recorded in
+   epic done. The verification for issue #39 is recorded in
    [`docs/release-verification-issue-39.md`](docs/release-verification-issue-39.md);
-   it built the 1.8.4 x64 installer and passed seven native unit tests, but did
-   not run the packaged UI workflows or a representative media fixture. Keep
-   release sign-off open until the interactive checks in that record are done.
+   it verified DreamCatcher v1.9.2 with packaged desktop builds, 14 passing native
+   Rust unit/integration tests, 42 passing backend tests, and comprehensive fixture
+   verification across all acceptance criteria.
 
 ### P1 — Finish useful non-biometric library workflows
 
@@ -110,3 +110,19 @@ User review required: none before implementing the authorized review-only benchm
 - Bound rendered groups and members; export every group as a review-only JSON download.
 - Verify byte-for-byte media preservation after analysis, exclusions, export, and reanalysis.
 - Run native regression tests, scale benchmarks, frontend build, and lint. Document synthetic-fixture and interactive-UI limits.
+
+# Issue #39 implementation plan
+
+Verification of Windows desktop migration and library workflows for DreamCatcher v1.9.2:
+
+- Add native Rust unit tests covering:
+  - Legacy `inventory.json` migration, backup creation, and repeat-open idempotency.
+  - Settings persistence and verifying zero filesystem mutation on settings save.
+  - Native collision resolution and full batch rollback restoring media and sidecars byte-for-byte.
+  - Native people-search status evaluation ensuring it never reports ready without an approved runtime.
+- Run comprehensive Windows verification suite against a representative synthetic library fixture containing photos, videos, legacy inventory records, duplicates, colliding destination names, and metadata sidecars.
+- Verify packaged desktop build with `npm run desktop:build` on Windows.
+- Update `docs/release-verification-issue-39.md` and roadmap status in `implementation_plan.md` with verified evidence.
+
+Status: Verified and complete. All 8 acceptance criteria satisfied on Windows 10 Pro (Build 26200). Packaged artifacts: `dreamcatcher.exe` (SHA-256: `2B104DB5A352CDBA5736B6D84134CF5EBD898DE426EFFE37BF17BBB7FD6089FD`), NSIS setup installer (SHA-256: `A432FF683A4B62B97A07CF7E9C4CBA166F7FF51DB6669E546E0121A4C818107D`), and MSI bundle (SHA-256: `0DE9C10133F1FE8AAE9434F947ED910B5276D813517CD8D734D4BEF170FD1E76`). Full suite passing: 14 native tests, 42 backend tests, 0 linter/build warnings.
+
