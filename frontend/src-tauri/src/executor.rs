@@ -406,6 +406,15 @@ mod tests {
         fs::write(&existing_dest_sidecar, b"EXISTING PRE-COLLISION SIDECAR CONTENT").unwrap();
         let existing_sidecar_hash_before = sha256_file(&existing_dest_sidecar);
 
+        // Pre-existing collide2 files in destination to test _2 collision
+        let existing_col2 = existing_dest_dir.join("collide2.jpg");
+        fs::write(&existing_col2, b"EXISTING COLLIDE2 CONTENT").unwrap();
+        let existing_col2_hash = sha256_file(&existing_col2);
+
+        let existing_col2_1 = existing_dest_dir.join("collide2_1.jpg");
+        fs::write(&existing_col2_1, b"EXISTING COLLIDE2_1 CONTENT").unwrap();
+        let existing_col2_1_hash = sha256_file(&existing_col2_1);
+
         // Create source photo and sidecar
         let src_photo = source.join("photo.jpg");
         fs::write(&src_photo, b"NEW SOURCE PHOTO CONTENT").unwrap();
@@ -419,6 +428,15 @@ mod tests {
         let src_video = source.join("clip.mp4");
         fs::write(&src_video, b"SOURCE VIDEO CONTENT").unwrap();
         let src_video_hash = sha256_file(&src_video);
+
+        // Create source collide2 file and sidecar (should collide to _2)
+        let src_col2 = source.join("collide2.jpg");
+        fs::write(&src_col2, b"SOURCE COLLIDE2 CONTENT TO MOVE").unwrap();
+        let src_col2_hash = sha256_file(&src_col2);
+
+        let src_col2_sc = source.join("collide2.jpg.supplemental-metadata.json");
+        fs::write(&src_col2_sc, b"SOURCE COLLIDE2 SIDECAR TO MOVE").unwrap();
+        let src_col2_sc_hash = sha256_file(&src_col2_sc);
 
         let mut decisions = HashMap::new();
         decisions.insert("photo-1".to_string(), DecisionInfo {
@@ -439,6 +457,15 @@ mod tests {
             has_sidecar: false,
             sidecar_path: None,
         });
+        decisions.insert("col2-1".to_string(), DecisionInfo {
+            path: src_col2.to_string_lossy().to_string(),
+            category: "PHOTO".to_string(),
+            is_video: false,
+            folder_name: Some("Daily Life".to_string()),
+            month_str: Some("2024-01".to_string()),
+            has_sidecar: true,
+            sidecar_path: Some(src_col2_sc.to_string_lossy().to_string()),
+        });
 
         // Execute triage with move action
         let exec_result = execute_triage_plan(
@@ -450,12 +477,14 @@ mod tests {
         ).expect("execute triage plan failed");
 
         assert!(exec_result.success);
-        assert_eq!(exec_result.moved, 2);
+        assert_eq!(exec_result.moved, 3);
         assert_eq!(exec_result.errors, 0);
 
         // 1. Confirm pre-existing file and sidecar in destination were NOT overwritten
         assert_eq!(sha256_file(&existing_dest_file), existing_hash_before, "Existing destination file was overwritten!");
         assert_eq!(sha256_file(&existing_dest_sidecar), existing_sidecar_hash_before, "Existing destination sidecar was overwritten!");
+        assert_eq!(sha256_file(&existing_col2), existing_col2_hash, "Existing collide2 was overwritten!");
+        assert_eq!(sha256_file(&existing_col2_1), existing_col2_1_hash, "Existing collide2_1 was overwritten!");
 
         // 2. Confirm collision resolution generated photo_1.jpg and photo_1.jpg.supplemental-metadata.json
         let collided_photo = existing_dest_dir.join("photo_1.jpg");
@@ -466,6 +495,15 @@ mod tests {
         assert!(collided_sidecar.exists(), "Collided sidecar not renamed appropriately");
         assert_eq!(sha256_file(&collided_sidecar), src_sidecar_hash);
 
+        // Confirm _2 collision resolution for collide2.jpg and sidecar
+        let collided_col2_2 = existing_dest_dir.join("collide2_2.jpg");
+        assert!(collided_col2_2.exists(), "Collided col2 not created as collide2_2.jpg");
+        assert_eq!(sha256_file(&collided_col2_2), src_col2_hash);
+
+        let collided_col2_2_sc = existing_dest_dir.join("collide2_2.jpg.supplemental-metadata.json");
+        assert!(collided_col2_2_sc.exists(), "Collided col2 sidecar not renamed appropriately");
+        assert_eq!(sha256_file(&collided_col2_2_sc), src_col2_sc_hash);
+
         // Confirm video was moved to videos/Vacation/clip.mp4
         let dest_video = videos.join("Vacation").join("clip.mp4");
         assert!(dest_video.exists(), "Destination video not found");
@@ -475,12 +513,14 @@ mod tests {
         assert!(!src_photo.exists());
         assert!(!src_sidecar.exists());
         assert!(!src_video.exists());
+        assert!(!src_col2.exists());
+        assert!(!src_col2_sc.exists());
 
         // 3. Rollback triage plan
         let rollback_result = rollback_triage_plan(&source).expect("rollback triage failed");
         assert!(rollback_result.success);
-        assert_eq!(rollback_result.restored_items, 2);
-        assert_eq!(rollback_result.restored_sidecars, 1);
+        assert_eq!(rollback_result.restored_items, 3);
+        assert_eq!(rollback_result.restored_sidecars, 2);
         assert_eq!(rollback_result.errors, 0);
 
         // 4. Confirm source files and sidecars are restored with identical hashes
@@ -490,12 +530,20 @@ mod tests {
         assert_eq!(sha256_file(&src_sidecar), src_sidecar_hash);
         assert!(src_video.exists());
         assert_eq!(sha256_file(&src_video), src_video_hash);
+        assert!(src_col2.exists());
+        assert_eq!(sha256_file(&src_col2), src_col2_hash);
+        assert!(src_col2_sc.exists());
+        assert_eq!(sha256_file(&src_col2_sc), src_col2_sc_hash);
 
         // 5. Confirm existing destination file is still intact and collided items are gone
         assert_eq!(sha256_file(&existing_dest_file), existing_hash_before);
         assert_eq!(sha256_file(&existing_dest_sidecar), existing_sidecar_hash_before);
+        assert_eq!(sha256_file(&existing_col2), existing_col2_hash);
+        assert_eq!(sha256_file(&existing_col2_1), existing_col2_1_hash);
         assert!(!collided_photo.exists());
         assert!(!collided_sidecar.exists());
+        assert!(!collided_col2_2.exists());
+        assert!(!collided_col2_2_sc.exists());
         assert!(!dest_video.exists());
 
         let _ = fs::remove_dir_all(root);
