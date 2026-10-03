@@ -111,7 +111,7 @@ def extract_video_thumbnail(file_path: Path, max_dim: int) -> Optional[bytes]:
             if max(frame.size) > max_dim:
                 scale_factor = max_dim / max(frame.size)
                 frame = frame.resize(
-                    (max(1, int(frame.width * scale_factor)), max(1, int(frame.height * scale_factor))),
+                    (max(1, round(frame.width * scale_factor)), max(1, round(frame.height * scale_factor))),
                     Image.Resampling.LANCZOS,
                 )
             output = io.BytesIO()
@@ -160,7 +160,7 @@ def get_thumbnail(path: str = Query(...), max_dim: int = Query(320)):
             w, h = img.size
             if max(w, h) > max_dim:
                 scale = max_dim / max(w, h)
-                img = img.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+                img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.Resampling.LANCZOS)
 
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=80)
