@@ -324,13 +324,24 @@ fn save_media_description(app: AppHandle, identity: String, description: Option<
 }
 
 #[tauri::command]
-fn analyze_duplicates(app: AppHandle) -> Result<serde_json::Value, String> { duplicates::analyze(&app) }
+async fn analyze_duplicates(app: AppHandle) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || duplicates::analyze(&app)).await.map_err(|e| e.to_string())?
+}
 
 #[tauri::command]
-fn get_duplicate_groups(app: AppHandle) -> Result<serde_json::Value, String> { duplicates::list(&app) }
+async fn get_duplicate_groups(app: AppHandle, page: Option<usize>) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || duplicates::list(&app, page.unwrap_or(1))).await.map_err(|e| e.to_string())?
+}
 
 #[tauri::command]
-fn exclude_duplicate_member(app: AppHandle, group_id: String, identity: String, excluded: bool) -> Result<(), String> { duplicates::exclude(&app, group_id, identity, excluded) }
+async fn export_duplicate_proposal(app: AppHandle) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || duplicates::proposal(&app)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn exclude_duplicate_member(app: AppHandle, group_id: String, identity: String, excluded: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || duplicates::exclude(&app, group_id, identity, excluded)).await.map_err(|e| e.to_string())?
+}
 
 fn url_decode(input: &str) -> String {
     percent_encoding::percent_decode_str(input)
@@ -431,6 +442,7 @@ pub fn run() {
             save_media_description,
             analyze_duplicates,
             get_duplicate_groups,
+            export_duplicate_proposal,
             exclude_duplicate_member,
         ])
         .run(tauri::generate_context!())

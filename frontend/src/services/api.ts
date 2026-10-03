@@ -233,10 +233,33 @@ export async function analyzeDuplicates(): Promise<{ groups: number; members: nu
 }
 
 export async function fetchDuplicateGroups(page = 1): Promise<{ groups: DuplicateGroup[]; total: number; page: number; page_size: number }> {
-  if (isTauri) return await invoke('get_duplicate_groups');
+  if (isTauri) return await invoke('get_duplicate_groups', { page });
   const res = await fetch(`${API_BASE}/api/duplicates?page=${page}&page_size=50`);
   if (!res.ok) throw new Error('Failed to load duplicate groups');
   return res.json();
+}
+
+export async function exportDuplicateProposal(): Promise<void> {
+  let proposal: unknown;
+  if (isTauri) proposal = await invoke('export_duplicate_proposal');
+  else {
+    // Fetch every page; a proposal must never silently stop at 100 groups.
+    const groups: DuplicateGroup[] = [];
+    let page = 1;
+    let result;
+    do {
+      result = await fetchDuplicateGroups(page++);
+      groups.push(...result.groups);
+    } while (groups.length < result.total && result.groups.length > 0);
+    if (groups.length < result.total) throw new Error('Duplicate groups changed during export; refresh and try again');
+    proposal = { version: 1, generated_at: new Date().toISOString(), mode: 'review-only', groups };
+  }
+  const url = URL.createObjectURL(new Blob([JSON.stringify(proposal, null, 2)], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'duplicate-review-proposal.json';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export async function excludeDuplicateMember(groupId: string, identity: string, excluded: boolean): Promise<void> {
