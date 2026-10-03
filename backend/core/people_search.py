@@ -175,13 +175,16 @@ def people_search_status(enabled: bool, index_path: Optional[Path] = None) -> di
         return {"enabled": False, "state": "disabled", "message": "People search is disabled. No face processing or face-derived data is created.", "index_exists": path.exists(), "indexed_media": 0, "reviewed_people": 0, "last_run": None}
     if not path.exists():
         return {"enabled": True, "state": "not_ready", "message": "People search is enabled, but no approved local face runtime has produced an index.", "index_exists": False, "indexed_media": 0, "reviewed_people": 0, "last_run": None}
-    conn = _connect(path)
     try:
-        # Until a vetted runtime and indexing lifecycle exist, a database file
-        # (including manually supplied detections) must not claim readiness.
+        conn = _connect(path)
+        try:
+            # Until a vetted runtime and indexing lifecycle exist, a database file
+            # (including manually supplied detections) must not claim readiness.
+            return {"enabled": True, "state": "not_ready", "message": "People search is enabled, but indexing is unavailable because no vetted local face runtime is configured. The existing derived database is not a usable index.", "index_exists": True, "indexed_media": 0, "reviewed_people": 0, "last_run": None}
+        finally:
+            conn.close()
+    except (sqlite3.DatabaseError, sqlite3.OperationalError):
         return {"enabled": True, "state": "not_ready", "message": "People search is enabled, but indexing is unavailable because no vetted local face runtime is configured. The existing derived database is not a usable index.", "index_exists": True, "indexed_media": 0, "reviewed_people": 0, "last_run": None}
-    finally:
-        conn.close()
 
 
 def delete_people_search_index(index_path: Optional[Path] = None) -> dict:
