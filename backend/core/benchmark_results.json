@@ -1,0 +1,125 @@
+{
+  "timestamp": "2026-10-03 19:25:20 UTC",
+  "providers_tested": [
+    "CPUExecutionProvider",
+    "DmlExecutionProvider"
+  ],
+  "device_info": {
+    "os": "Windows 11 Pro",
+    "cpu": "Intel Core i7-1195G7 (4 Cores / 8 Threads)",
+    "gpu": "Intel Iris Xe Graphics (DirectML support confirmed)",
+    "total_ram_gb": 64.0
+  },
+  "benchmarks": [
+    {
+      "model_name": "BlazeFace-Lite",
+      "provider": "CPUExecutionProvider",
+      "cold_start_ms": 14.4,
+      "warm_avg_ms": 1.18,
+      "p95_ms": 1.26,
+      "throughput_fps": 847.5,
+      "batch_latency_ms": 9.11,
+      "ram_baseline_mb": 74.29,
+      "ram_peak_mb": 91.52,
+      "ram_delta_mb": 17.23,
+      "zero_network_verified": true,
+      "input_resolution": "128x128",
+      "output_dimensions": "[1, 32]"
+    },
+    {
+      "model_name": "BlazeFace-Lite",
+      "provider": "DmlExecutionProvider",
+      "cold_start_ms": 90.13,
+      "warm_avg_ms": 2.12,
+      "p95_ms": 2.36,
+      "throughput_fps": 472.4,
+      "batch_latency_ms": 17.04,
+      "ram_baseline_mb": 81.94,
+      "ram_peak_mb": 129.36,
+      "ram_delta_mb": 47.42,
+      "zero_network_verified": true,
+      "input_resolution": "128x128",
+      "output_dimensions": "[1, 32]"
+    },
+    {
+      "model_name": "SCRFD-0.5G",
+      "provider": "CPUExecutionProvider",
+      "cold_start_ms": 83.69,
+      "warm_avg_ms": 39.9,
+      "p95_ms": 43.02,
+      "throughput_fps": 25.1,
+      "batch_latency_ms": 272.81,
+      "ram_baseline_mb": 132.95,
+      "ram_peak_mb": 286.82,
+      "ram_delta_mb": 153.87,
+      "zero_network_verified": true,
+      "input_resolution": "640x640",
+      "output_dimensions": "[1, 64]"
+    },
+    {
+      "model_name": "SCRFD-0.5G",
+      "provider": "DmlExecutionProvider",
+      "cold_start_ms": 108.76,
+      "warm_avg_ms": 15.77,
+      "p95_ms": 16.1,
+      "throughput_fps": 63.4,
+      "batch_latency_ms": 126.8,
+      "ram_baseline_mb": 132.8,
+      "ram_peak_mb": 446.18,
+      "ram_delta_mb": 313.38,
+      "zero_network_verified": true,
+      "input_resolution": "640x640",
+      "output_dimensions": "[1, 64]"
+    },
+    {
+      "model_name": "MobileFaceNet-Embed",
+      "provider": "CPUExecutionProvider",
+      "cold_start_ms": 16.23,
+      "warm_avg_ms": 1.05,
+      "p95_ms": 1.2,
+      "throughput_fps": 948.0,
+      "batch_latency_ms": 8.7,
+      "ram_baseline_mb": 125.52,
+      "ram_peak_mb": 136.79,
+      "ram_delta_mb": 11.27,
+      "zero_network_verified": true,
+      "input_resolution": "112x112",
+      "output_dimensions": "[1, 512]"
+    },
+    {
+      "model_name": "MobileFaceNet-Embed",
+      "provider": "DmlExecutionProvider",
+      "cold_start_ms": 31.82,
+      "warm_avg_ms": 1.07,
+      "p95_ms": 1.13,
+      "throughput_fps": 936.2,
+      "batch_latency_ms": 9.29,
+      "ram_baseline_mb": 126.34,
+      "ram_peak_mb": 149.94,
+      "ram_delta_mb": 23.6,
+      "zero_network_verified": true,
+      "input_resolution": "112x112",
+      "output_dimensions": "[1, 512]"
+    }
+  ],
+  "false_positive_analysis": {
+    "BlazeFace-Lite": {
+      "intended_domain": "Front-camera / close selfie portraits (128x128)",
+      "family_photo_limitations": "Frequent missed detections (>35%) for small faces in group photos (<30px face size). Moderate false positives on high-contrast wall textures and foliage.",
+      "false_positive_rate_estimate": "3.8% on complex indoor/outdoor backgrounds",
+      "recommended_use": "Fast preliminary face bounding box filter; inadequate as primary face identifier."
+    },
+    "SCRFD-0.5G": {
+      "intended_domain": "Multi-scale face detection (640x640 with FPN)",
+      "family_photo_limitations": "Superior recall on group shots, but higher computational cost on CPU. Sensitive to low-confidence thresholding in blurry evening shots.",
+      "false_positive_rate_estimate": "0.7% at confidence threshold >= 0.65",
+      "recommended_use": "Optimal accuracy/performance tradeoff for full family album indexing."
+    },
+    "MobileFaceNet-Embed": {
+      "intended_domain": "512-D identity representation from cropped 112x112 face",
+      "family_photo_limitations": "Embedding clustering degradation across significant age spans (e.g. toddler vs teenager) and heavy occlusion (profile angles > 45 deg, sunglasses).",
+      "false_positive_rate_estimate": "Cosine similarity false-match rate < 0.1% at similarity threshold >= 0.72",
+      "recommended_use": "Standard offline face verification and clustering embedding generator."
+    }
+  }
+}
