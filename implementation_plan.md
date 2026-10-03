@@ -126,3 +126,18 @@ Verification of Windows desktop migration and library workflows for DreamCatcher
 
 Status: Verified and complete. All 8 acceptance criteria satisfied on Windows 10 Pro (Build 26200). Packaged artifacts: `dreamcatcher.exe` (SHA-256: `2B104DB5A352CDBA5736B6D84134CF5EBD898DE426EFFE37BF17BBB7FD6089FD`), NSIS setup installer (SHA-256: `A432FF683A4B62B97A07CF7E9C4CBA166F7FF51DB6669E546E0121A4C818107D`), and MSI bundle (SHA-256: `0DE9C10133F1FE8AAE9434F947ED910B5276D813517CD8D734D4BEF170FD1E76`). Full suite passing: 14 native tests, 42 backend tests, 0 linter/build warnings.
 
+# Issue #53 implementation plan
+
+Reproducible synthetic Google Photos Takeout media test fixture:
+
+- Build `backend/core/fixture_generator.py` and CLI script `scripts/generate_takeout_fixture.py`:
+  - Deterministically generate valid JPEG images (with EXIF tags) and MP4 videos (with valid ISO container headers).
+  - Generate paired Google Photos sidecars (`.json` and `.supplemental-metadata.json`) containing timestamps, coordinates, and descriptions.
+  - Create pre-existing files in destination folders (`Pictures/`, `Videos/`) to trigger collision avoidance (`_1`, `_2`).
+  - Create duplicate candidate files with identical SHA-256 hashes.
+  - Generate mock legacy `inventory.json` file.
+  - Output detailed `fixture_manifest.json` recording item counts, sizes, hashes, and collision targets.
+- Create automated test suite `backend/tests/test_fixture_generator.py` verifying generation determinism, schema adherence, and format validity.
+- Document generator usage and fixture structure in `docs/synthetic-takeout-fixture.md`.
+
+Status: Verified and complete. Synthetic fixture generator delivers deterministic multi-format media (JPEG, PNG, MP4), paired sidecars, duplicate sets, destination collision targets, legacy inventory, and machine-readable `fixture_manifest.json`. Tested via `backend/tests/test_fixture_generator.py` (4 passed) and documented in `docs/synthetic-takeout-fixture.md`.
