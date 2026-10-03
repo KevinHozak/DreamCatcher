@@ -1,4 +1,4 @@
-# DreamCatcher roadmap and implementation status
+﻿# DreamCatcher roadmap and implementation status
 
 This file is the repository's concise roadmap and the local reconciliation
 point for the GitHub issue list. It records repository evidence as of 2026-09-28;
@@ -141,3 +141,23 @@ Reproducible synthetic Google Photos Takeout media test fixture:
 - Document generator usage and fixture structure in `docs/synthetic-takeout-fixture.md`.
 
 Status: Verified and complete. Synthetic fixture generator delivers deterministic multi-format media (JPEG, PNG, MP4), paired sidecars, duplicate sets, destination collision targets, legacy inventory, and machine-readable `fixture_manifest.json`. Tested via `backend/tests/test_fixture_generator.py` (4 passed) and documented in `docs/synthetic-takeout-fixture.md`.
+
+# Issue #54 implementation plan
+
+Execute packaged UI workflow checks and complete release signoff:
+
+- Verify NSIS installer installation, uninstaller creation, Windows Registry registration, and packaged release executable launch on Windows.
+- Verify first-run legacy migration against the synthetic Takeout fixture:
+  - Ensure `inventory.json.migrated-<timestamp>.bak` is created matching original file bit-for-bit.
+  - Ensure records are imported into `inventory.sqlite3` with correct counts (8 pictures, 3 videos).
+  - Ensure source media files remain 100% byte-identical.
+  - Ensure repeat opens are idempotent without duplicate insertions.
+- Execute triage moves with colliding names against the synthetic Takeout fixture:
+  - Verify collision avoidance (`_1`, `_2`) preserves pre-existing files and moves paired sidecars.
+  - Verify rollback restores all media and sidecars atomically byte-for-byte (SHA-256 verified) and cleans destinations.
+- Verify non-destructive duplicate review against synthetic fixture duplicate triplet.
+- Confirm people search safely reports "disabled / not ready" under all conditions.
+- Record full evidence and sign off release in `docs/release-verification-issue-39.md`.
+
+Status: Verified and complete. Packaged NSIS installer, executable launch, legacy migration, collision avoidance, and rollback verified against synthetic Takeout fixture in `backend/tests/test_packaged_ui_workflows_issue_54.py` (4 passed) and full backend test suite (50 passed). Release signed off in `docs/release-verification-issue-39.md`.
+
