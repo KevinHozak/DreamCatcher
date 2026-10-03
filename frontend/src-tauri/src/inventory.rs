@@ -23,6 +23,12 @@ pub struct InventoryRecord {
     pub has_gps: bool,
     pub last_seen_scan: String,
     pub state: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub description_source: Option<String>,
+    #[serde(default)]
+    pub description_status: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InventoryScanSummary {
@@ -143,6 +149,7 @@ fn connect(path: &Path, legacy: Option<&Path>) -> Result<Connection, String> {
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(|e| e.to_string())?;
     conn.execute_batch("CREATE TABLE IF NOT EXISTS inventory_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS media_inventory (identity TEXT PRIMARY KEY,path TEXT NOT NULL,root_kind TEXT NOT NULL,media_type TEXT NOT NULL,extension TEXT NOT NULL,size INTEGER NOT NULL,timestamp TEXT NOT NULL,is_undated INTEGER NOT NULL,has_sidecar INTEGER NOT NULL,has_gps INTEGER NOT NULL,last_seen_scan TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'available'); CREATE INDEX IF NOT EXISTS idx_inventory_type ON media_inventory(media_type); CREATE INDEX IF NOT EXISTS idx_inventory_timestamp ON media_inventory(timestamp); CREATE INDEX IF NOT EXISTS idx_inventory_state ON media_inventory(state); CREATE TABLE IF NOT EXISTS inventory_scans (scan_id TEXT PRIMARY KEY,root_kind TEXT NOT NULL,root_path TEXT NOT NULL,started_at TEXT NOT NULL,completed_at TEXT,status TEXT NOT NULL,discovered INTEGER NOT NULL DEFAULT 0,indexed INTEGER NOT NULL DEFAULT 0,skipped INTEGER NOT NULL DEFAULT 0,error TEXT); CREATE TABLE IF NOT EXISTS inventory_diagnostics (id INTEGER PRIMARY KEY AUTOINCREMENT,scan_id TEXT NOT NULL,path TEXT,message TEXT NOT NULL,created_at TEXT NOT NULL);").map_err(|e| format!("Could not initialize inventory schema: {e}"))?;
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS media_captions (identity TEXT PRIMARY KEY,description TEXT,source TEXT NOT NULL DEFAULT 'not_processed',status TEXT NOT NULL DEFAULT 'not_processed',runtime TEXT,confidence REAL,source_revision TEXT,generated_at TEXT,updated_at TEXT NOT NULL,error TEXT,FOREIGN KEY(identity) REFERENCES media_inventory(identity)); CREATE INDEX IF NOT EXISTS idx_captions_status ON media_captions(status); CREATE INDEX IF NOT EXISTS idx_captions_source ON media_captions(source);").map_err(|e| format!("Could not initialize caption schema: {e}"))?;
     let version: Option<i64> = conn
         .query_row(
             "SELECT value FROM inventory_meta WHERE key='schema_version'",
@@ -198,6 +205,7 @@ fn to_record(item: MediaItem, root_kind: &str, scan_id: &str) -> InventoryRecord
         has_gps: item.has_gps,
         last_seen_scan: scan_id.into(),
         state: "available".into(),
+        ..Default::default()
     }
 }
 fn from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<InventoryRecord> {
@@ -214,6 +222,9 @@ fn from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<InventoryRecord> {
         has_gps: r.get::<_, i64>(9)? != 0,
         last_seen_scan: r.get(10)?,
         state: r.get(11)?,
+        description: r.get(12)?,
+        description_source: r.get(13)?,
+        description_status: r.get(14)?,
     })
 }
 pub fn open_for_app(app: &AppHandle) -> Result<Connection, String> {
@@ -249,7 +260,7 @@ pub fn scan(
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     for item in items {
         let r = to_record(item, &root_kind, &scan_id);
-        tx.execute("INSERT INTO media_inventory(identity,path,root_kind,media_type,extension,size,timestamp,is_undated,has_sidecar,has_gps,last_seen_scan,state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(identity) DO UPDATE SET path=excluded.path,root_kind=excluded.root_kind,media_type=excluded.media_type,extension=excluded.extension,size=excluded.size,timestamp=excluded.timestamp,is_undated=excluded.is_undated,has_sidecar=excluded.has_sidecar,has_gps=excluded.has_gps,last_seen_scan=excluded.last_seen_scan,state='available'",params![r.identity,r.path,r.root_kind,r.media_type,r.extension,r.size as i64,r.timestamp,r.is_undated as i64,r.has_sidecar as i64,r.has_gps as i64,r.last_seen_scan,r.state]).map_err(|e|e.to_string())?;
+        upsert_record(&tx, &r)?;
     }
     tx.execute("UPDATE media_inventory SET state='stale' WHERE root_kind=? AND state='available' AND last_seen_scan<>? AND path LIKE ?",params![root_kind,scan_id,format!("{}{}%",root_path.to_string_lossy(),std::path::MAIN_SEPARATOR)]).map_err(|e|e.to_string())?;
     let completed = Utc::now().to_rfc3339();
@@ -302,10 +313,14 @@ pub fn query(app: &AppHandle, q: InventoryQuery) -> Result<InventoryPage, String
         return Err("root_kind must be pictures or videos".into());
     };
     let conn = open_for_app(app)?;
+    query_connection(&conn, q)
+}
+
+fn query_connection(conn: &Connection, q: InventoryQuery) -> Result<InventoryPage, String> {
     let page = q.page.unwrap_or(1).max(1);
     let page_size = q.page_size.unwrap_or(50).clamp(1, 100);
     let state = q.state.unwrap_or_else(|| "available".into());
-    let mut sql: String="SELECT identity,path,root_kind,media_type,extension,size,timestamp,is_undated,has_sidecar,has_gps,last_seen_scan,state FROM media_inventory WHERE root_kind=?".into();
+    let mut sql: String="SELECT m.identity,m.path,m.root_kind,m.media_type,m.extension,m.size,m.timestamp,m.is_undated,m.has_sidecar,m.has_gps,m.last_seen_scan,m.state,c.description,c.source,c.status FROM media_inventory m LEFT JOIN media_captions c ON c.identity=m.identity WHERE m.root_kind=?".into();
     let mut args: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(q.root_kind)];
     if state == "available" || state == "stale" {
         sql.push_str(" AND state=?");
@@ -344,7 +359,10 @@ pub fn query(app: &AppHandle, q: InventoryQuery) -> Result<InventoryPage, String
         sql.push_str(" AND size<=?");
         args.push(Box::new(v as i64))
     }
-    if q.person.as_ref().is_some_and(|value| !value.trim().is_empty()) {
+    if q.person
+        .as_ref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
         return Err("People filtering is unavailable in the native app until local face indexing is implemented".into());
     }
     let total = conn
@@ -372,4 +390,108 @@ pub fn query(app: &AppHandle, q: InventoryQuery) -> Result<InventoryPage, String
         page,
         page_size,
     })
+}
+
+fn upsert_record(conn: &Connection, r: &InventoryRecord) -> Result<(), String> {
+    conn.execute("INSERT INTO media_inventory(identity,path,root_kind,media_type,extension,size,timestamp,is_undated,has_sidecar,has_gps,last_seen_scan,state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(identity) DO UPDATE SET path=excluded.path,root_kind=excluded.root_kind,media_type=excluded.media_type,extension=excluded.extension,size=excluded.size,timestamp=excluded.timestamp,is_undated=excluded.is_undated,has_sidecar=excluded.has_sidecar,has_gps=excluded.has_gps,last_seen_scan=excluded.last_seen_scan,state='available'",params![r.identity,r.path,r.root_kind,r.media_type,r.extension,r.size as i64,r.timestamp,r.is_undated as i64,r.has_sidecar as i64,r.has_gps as i64,r.last_seen_scan,r.state]).map_err(|e|e.to_string())?;
+    Ok(())
+}
+
+pub fn save_description(
+    app: &AppHandle,
+    identity: String,
+    description: Option<String>,
+) -> Result<(), String> {
+    save_description_connection(&open_for_app(app)?, &identity, description.as_deref())
+}
+fn save_description_connection(
+    conn: &Connection,
+    identity: &str,
+    description: Option<&str>,
+) -> Result<(), String> {
+    let value = description.map(str::trim).filter(|v| !v.is_empty());
+    let changed = conn.execute(
+        "INSERT INTO media_captions(identity,description,source,status,updated_at) SELECT identity,?,?,?,? FROM media_inventory WHERE identity=? ON CONFLICT(identity) DO UPDATE SET description=excluded.description,source=excluded.source,status=excluded.status,updated_at=excluded.updated_at,error=NULL",
+        params![value, if value.is_some() { "user" } else { "embedded" }, if value.is_some() { "complete" } else { "not_processed" }, Utc::now().to_rfc3339(), identity],
+    ).map_err(|e| e.to_string())?;
+    if changed == 0 {
+        return Err("Media item was not found".into());
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn descriptions_persist_across_reopen_and_rescan() {
+        let path = std::env::temp_dir().join(format!(
+            "dc-captions-{}.sqlite3",
+            Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let query = || InventoryQuery {
+            root_kind: "pictures".into(),
+            ..Default::default()
+        };
+        {
+            let conn = connect(&path, None).unwrap();
+            let record = InventoryRecord {
+                identity: "fixture".into(),
+                path: "fixture.jpg".into(),
+                root_kind: "pictures".into(),
+                state: "available".into(),
+                ..Default::default()
+            };
+            upsert_record(&conn, &record).unwrap();
+            assert!(save_description_connection(&conn, "missing", Some("no orphan")).is_err());
+            assert_eq!(
+                query_connection(&conn, query()).unwrap().items[0].description,
+                None
+            );
+            save_description_connection(&conn, "fixture", Some("  A family picnic  ")).unwrap();
+            upsert_record(
+                &conn,
+                &InventoryRecord {
+                    last_seen_scan: "rescan".into(),
+                    ..record
+                },
+            )
+            .unwrap();
+            let page = query_connection(&conn, query()).unwrap();
+            assert_eq!(page.total, 1);
+            assert_eq!(
+                page.items[0].description.as_deref(),
+                Some("A family picnic")
+            );
+            assert_eq!(page.items[0].description_source.as_deref(), Some("user"));
+            assert_eq!(
+                page.items[0].description_status.as_deref(),
+                Some("complete")
+            );
+            assert_eq!(page.items[0].last_seen_scan, "rescan");
+        }
+        {
+            let conn = connect(&path, None).unwrap();
+            assert_eq!(
+                query_connection(&conn, query()).unwrap().items[0]
+                    .description
+                    .as_deref(),
+                Some("A family picnic")
+            );
+            save_description_connection(&conn, "fixture", Some("Updated")).unwrap();
+            assert_eq!(
+                query_connection(&conn, query()).unwrap().items[0]
+                    .description
+                    .as_deref(),
+                Some("Updated")
+            );
+            for value in [None, Some("   ")] {
+                save_description_connection(&conn, "fixture", value).unwrap();
+                let item = query_connection(&conn, query()).unwrap().items.remove(0);
+                assert_eq!(item.description, None);
+                assert_eq!(item.description_source.as_deref(), Some("embedded"));
+                assert_eq!(item.description_status.as_deref(), Some("not_processed"));
+            }
+        }
+        fs::remove_file(path).unwrap();
+    }
 }
