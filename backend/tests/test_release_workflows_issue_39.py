@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.executor import execute_triage_plan, rollback_triage_plan
 from core.inventory import inventory_stats, query_inventory, scan_inventory
+from core.captions import update_user_description
 from core.duplicates import analyze_exact_duplicates, duplicate_groups, set_duplicate_exclusion, export_cleanup_proposal
 from core.people_search import people_search_status, delete_people_search_index
 
@@ -419,3 +420,65 @@ def test_windows_people_search_readiness_and_unapproved_runtime(tmp_path):
     del_res = delete_people_search_index(index_path=db_path)
     assert del_res["deleted"] is True
     assert not db_path.exists()
+
+
+def test_windows_caption_provenance_rescan_and_media_immutability(tmp_path):
+    """
+    Issue #40: Description provenance and user edits survive rescans and never mutate media files or sidecars.
+    """
+    root = tmp_path / "Pictures"
+    root.mkdir()
+    pic = root / "vacation.jpg"
+    pic_data = b"REAL_JPEG_VACATION_BYTES_12345"
+    pic.write_bytes(pic_data)
+    pic_hash = compute_sha256(pic)
+
+    sidecar = root / "vacation.jpg.json"
+    sidecar_data = '{"description": "Sunset at the beach"}'
+    sidecar.write_text(sidecar_data, encoding="utf-8")
+    sidecar_hash = compute_sha256(sidecar)
+
+    db_path = tmp_path / "inventory.sqlite3"
+
+    # 1. Initial scan imports sidecar description
+    scan_inventory(root, "pictures", db_path)
+    items = query_inventory("pictures", inventory_path=db_path)["items"]
+    assert len(items) == 1
+    assert items[0]["description"] == "Sunset at the beach"
+    assert items[0]["description_source"] == "sidecar"
+    assert items[0]["description_status"] == "complete"
+
+    # Verify media and sidecar bytes are unchanged
+    assert compute_sha256(pic) == pic_hash
+    assert compute_sha256(sidecar) == sidecar_hash
+
+    # 2. User edits description
+    db = sqlite3.connect(str(db_path))
+    db.row_factory = sqlite3.Row
+    try:
+        updated = update_user_description(db, items[0]["identity"], "Our favorite family vacation sunset")
+        assert updated["source"] == "user"
+        assert updated["description"] == "Our favorite family vacation sunset"
+        assert updated["status"] == "complete"
+    finally:
+        db.close()
+
+    # Query reflects user edit
+    items_after_edit = query_inventory("pictures", inventory_path=db_path)["items"]
+    assert items_after_edit[0]["description"] == "Our favorite family vacation sunset"
+    assert items_after_edit[0]["description_source"] == "user"
+
+    # Verify editing indexed description NEVER mutated media or sidecar file
+    assert compute_sha256(pic) == pic_hash
+    assert compute_sha256(sidecar) == sidecar_hash
+
+    # 3. Rescan occurs - user edit must survive untouched and sidecar must not overwrite it
+    scan_inventory(root, "pictures", db_path)
+    items_after_rescan = query_inventory("pictures", inventory_path=db_path)["items"]
+    assert items_after_rescan[0]["description"] == "Our favorite family vacation sunset"
+    assert items_after_rescan[0]["description_source"] == "user"
+
+    # Verify media and sidecar files remain 100% byte-identical
+    assert compute_sha256(pic) == pic_hash
+    assert compute_sha256(sidecar) == sidecar_hash
+

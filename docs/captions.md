@@ -41,7 +41,9 @@ returns a clear unavailable-runtime failure until such a runtime is configured.
 The Python API endpoints are `GET /api/captions`, `PUT
 /api/captions/{identity}`, and `POST /api/captions/process`. The process endpoint
 currently has no configured generator, so generation attempts report an
-unavailable-runtime failure. The native Tauri library does not yet expose
-caption fields, editing, or processing; the frontend reports those operations
-as unavailable in native mode. None of the Python endpoints modifies, moves,
-renames, or deletes media files.
+unavailable-runtime failure. The native Tauri desktop library exposes full
+description viewing and user editing backed by the shared SQLite `media_captions`
+table; user descriptions survive rescans and never modify media files or sidecars.
+Automated batch caption generation remains an unconfigured Python-only capability,
+and unsupported generation controls are excluded from the native UI flow.
+None of the endpoints or native commands modifies, moves, renames, or deletes media files.

@@ -15,11 +15,12 @@ and selected API workflows.
   avoid overwriting collisions, preserve supported Takeout sidecars, and roll
   back completed triage using its ledger.
 - **Media Library:** scan picture and video roots into a shared local SQLite
-  inventory, browse/filter results, inspect metadata, and review duplicates.
-- **Descriptions:** import sidecar/embedded descriptions and edit them in the
-  Python-backed library workflow. Generated captions are unavailable until a
-  local caption model is configured; the desktop bridge does not yet expose
-  description editing or caption processing.
+  inventory, browse/filter results, inspect metadata, and review duplicates
+  in a strictly non-destructive review workflow.
+- **Descriptions:** import sidecar and embedded descriptions, view provenance,
+  and edit descriptions in both the native Tauri desktop app and Python backend.
+  User edits survive rescans and never modify original media or sidecar files.
+  Automated caption processing is not yet enabled with an approved local model.
 - **People-search foundation:** settings, privacy boundaries, and derived face
   record storage exist. No face-recognition runtime is shipped, so indexing
   and actual face-based search are not ready.
