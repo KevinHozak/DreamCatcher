@@ -1,4 +1,4 @@
-use crate::scanner::{scan_directory, MediaItem};
+use crate::scanner::{extract_description, scan_directory, MediaItem};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -259,8 +259,11 @@ pub fn scan(
     let (items, discovered) = scan_directory(&root_path, None)?;
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     for item in items {
+        let sidecar_opt = item.sidecar_path.as_deref().map(Path::new);
+        let (desc, source) = extract_description(Path::new(&item.path), sidecar_opt);
         let r = to_record(item, &root_kind, &scan_id);
         upsert_record(&tx, &r)?;
+        upsert_imported_description(&tx, &r.identity, desc.as_deref(), source.as_deref())?;
     }
     tx.execute("UPDATE media_inventory SET state='stale' WHERE root_kind=? AND state='available' AND last_seen_scan<>? AND path LIKE ?",params![root_kind,scan_id,format!("{}{}%",root_path.to_string_lossy(),std::path::MAIN_SEPARATOR)]).map_err(|e|e.to_string())?;
     let completed = Utc::now().to_rfc3339();
@@ -399,6 +402,27 @@ fn query_connection(conn: &Connection, q: InventoryQuery) -> Result<InventoryPag
 
 fn upsert_record(conn: &Connection, r: &InventoryRecord) -> Result<(), String> {
     conn.execute("INSERT INTO media_inventory(identity,path,root_kind,media_type,extension,size,timestamp,is_undated,has_sidecar,has_gps,last_seen_scan,state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(identity) DO UPDATE SET path=excluded.path,root_kind=excluded.root_kind,media_type=excluded.media_type,extension=excluded.extension,size=excluded.size,timestamp=excluded.timestamp,is_undated=excluded.is_undated,has_sidecar=excluded.has_sidecar,has_gps=excluded.has_gps,last_seen_scan=excluded.last_seen_scan,state='available'",params![r.identity,r.path,r.root_kind,r.media_type,r.extension,r.size as i64,r.timestamp,r.is_undated as i64,r.has_sidecar as i64,r.has_gps as i64,r.last_seen_scan,r.state]).map_err(|e|e.to_string())?;
+    Ok(())
+}
+
+fn upsert_imported_description(
+    conn: &Connection,
+    identity: &str,
+    description: Option<&str>,
+    source: Option<&str>,
+) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
+    if let (Some(desc), Some(src)) = (description, source) {
+        conn.execute(
+            "INSERT INTO media_captions(identity,description,source,status,updated_at) VALUES(?,?,?,'complete',?) ON CONFLICT(identity) DO UPDATE SET description=excluded.description,source=excluded.source,status='complete',updated_at=excluded.updated_at,error=NULL WHERE media_captions.source<>'user'",
+            params![identity, desc, src, now],
+        ).map_err(|e| e.to_string())?;
+    } else {
+        conn.execute(
+            "INSERT OR IGNORE INTO media_captions(identity,source,status,updated_at) VALUES(?,'embedded','not_processed',?)",
+            params![identity, now],
+        ).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -701,6 +725,80 @@ mod tests {
             assert_eq!(fs::read(&sidecar_file).unwrap(), orig_sidecar_bytes);
 
             fs::remove_dir_all(media_dir).unwrap();
+        }
+        // Ensure scanning a folder imports sidecar descriptions and respects user edits
+        {
+            let scan_db_path = std::env::temp_dir().join(format!(
+                "dc-captions-scan-{}.sqlite3",
+                Utc::now().timestamp_nanos_opt().unwrap()
+            ));
+            let test_root = std::env::temp_dir().join(format!(
+                "dc-scan-sidecar-{}",
+                Utc::now().timestamp_nanos_opt().unwrap()
+            ));
+            fs::create_dir_all(&test_root).unwrap();
+            let pic_path = test_root.join("test_pic.jpg");
+            let sidecar_path = test_root.join("test_pic.jpg.json");
+            fs::write(&pic_path, b"FAKE_JPEG_CONTENT").unwrap();
+            fs::write(
+                &sidecar_path,
+                b"{\"description\":\"Family vacation on the beach\"}",
+            )
+            .unwrap();
+
+            let conn = connect(&scan_db_path, None).unwrap();
+            let (items, _) = scan_directory(&test_root, None).unwrap();
+            assert_eq!(items.len(), 1);
+            assert_eq!(items[0].caption, "Family vacation on the beach");
+
+            for item in items {
+                let sidecar_opt = item.sidecar_path.as_deref().map(Path::new);
+                let (desc, source) = extract_description(Path::new(&item.path), sidecar_opt);
+                let r = to_record(item, "pictures", "scan-1");
+                upsert_record(&conn, &r).unwrap();
+                upsert_imported_description(&conn, &r.identity, desc.as_deref(), source.as_deref())
+                    .unwrap();
+            }
+
+            let page = query_connection(&conn, query()).unwrap();
+            assert_eq!(page.total, 1);
+            let item_identity = page.items[0].identity.clone();
+            assert_eq!(
+                page.items[0].description.as_deref(),
+                Some("Family vacation on the beach")
+            );
+            assert_eq!(page.items[0].description_source.as_deref(), Some("sidecar"));
+            assert_eq!(page.items[0].description_status.as_deref(), Some("complete"));
+
+            // User overrides description
+            save_description_connection(&conn, &item_identity, Some("Custom user memory")).unwrap();
+            let page_after_user = query_connection(&conn, query()).unwrap();
+            assert_eq!(
+                page_after_user.items[0].description.as_deref(),
+                Some("Custom user memory")
+            );
+            assert_eq!(page_after_user.items[0].description_source.as_deref(), Some("user"));
+
+            // Rescan should NOT overwrite user description with sidecar description
+            let (rescan_items, _) = scan_directory(&test_root, None).unwrap();
+            for item in rescan_items {
+                let sidecar_opt = item.sidecar_path.as_deref().map(Path::new);
+                let (desc, source) = extract_description(Path::new(&item.path), sidecar_opt);
+                let r = to_record(item, "pictures", "scan-2");
+                upsert_record(&conn, &r).unwrap();
+                upsert_imported_description(&conn, &r.identity, desc.as_deref(), source.as_deref())
+                    .unwrap();
+            }
+
+            let page_after_rescan = query_connection(&conn, query()).unwrap();
+            assert_eq!(
+                page_after_rescan.items[0].description.as_deref(),
+                Some("Custom user memory")
+            );
+            assert_eq!(page_after_rescan.items[0].description_source.as_deref(), Some("user"));
+
+            fs::remove_dir_all(test_root).unwrap();
+            let _ = fs::remove_file(scan_db_path);
         }
         fs::remove_file(path).unwrap();
     }

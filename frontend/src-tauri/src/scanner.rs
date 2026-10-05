@@ -214,6 +214,48 @@ pub fn extract_gps_coordinates(filepath: &Path, sidecar_path: Option<&Path>) -> 
     None
 }
 
+pub fn extract_description(
+    filepath: &Path,
+    sidecar_path: Option<&Path>,
+) -> (Option<String>, Option<String>) {
+    // 1. Takeout JSON sidecar
+    if let Some(sc) = sidecar_path {
+        if sc.exists() {
+            if let Ok(content) = fs::read_to_string(sc) {
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
+                    for key in ["description", "caption", "title"] {
+                        if let Some(val) = data.get(key).and_then(|v| v.as_str()) {
+                            let trimmed = val.trim();
+                            if !trimmed.is_empty() {
+                                return (Some(trimmed.to_string()), Some("sidecar".to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. EXIF data (Tag::ImageDescription)
+    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    if PHOTO_EXTS.contains(&ext.as_str()) {
+        if let Ok(file) = File::open(filepath) {
+            let mut bufreader = BufReader::new(file);
+            if let Ok(exif) = Reader::new().read_from_container(&mut bufreader) {
+                if let Some(field) = exif.get_field(Tag::ImageDescription, In::PRIMARY) {
+                    let s = field.display_value().to_string();
+                    let clean = s.trim().trim_matches('"').trim();
+                    if !clean.is_empty() {
+                        return (Some(clean.to_string()), Some("embedded".to_string()));
+                    }
+                }
+            }
+        }
+    }
+
+    (None, None)
+}
+
 pub fn scan_directory(
     source_dir: &Path,
     month_filter: Option<&str>,
@@ -270,6 +312,9 @@ pub fn scan_directory(
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
             let is_video = is_video_ext(&ext);
 
+            let (desc_opt, _) = extract_description(p, sidecar.as_deref());
+            let caption = desc_opt.unwrap_or_default();
+
             records.push(MediaItem {
                 id: format!("{}_{}", name, size),
                 name,
@@ -288,7 +333,7 @@ pub fn scan_directory(
                 category: "PHOTO".to_string(),
                 tier: "MIXED".to_string(),
                 reason: String::new(),
-                caption: String::new(),
+                caption,
                 is_cached: None,
             });
         }
