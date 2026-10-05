@@ -678,6 +678,30 @@ mod tests {
                 assert_eq!(item.description_status.as_deref(), Some("not_processed"));
             }
         }
+        // Ensure description edits never mutate or touch media files or sidecars
+        {
+            let media_dir = std::env::temp_dir().join(format!(
+                "dc-caption-immutability-{}",
+                Utc::now().timestamp_nanos_opt().unwrap()
+            ));
+            fs::create_dir_all(&media_dir).unwrap();
+            let media_file = media_dir.join("photo.jpg");
+            let sidecar_file = media_dir.join("photo.jpg.json");
+            fs::write(&media_file, b"JPEG_ORIGINAL_BYTES").unwrap();
+            fs::write(&sidecar_file, b"{\"description\":\"Sidecar text\"}").unwrap();
+
+            let orig_media_bytes = fs::read(&media_file).unwrap();
+            let orig_sidecar_bytes = fs::read(&sidecar_file).unwrap();
+
+            let conn = connect(&path, None).unwrap();
+            save_description_connection(&conn, "fixture", Some("User Edited Description")).unwrap();
+
+            // Verify files on disk remain strictly byte-identical
+            assert_eq!(fs::read(&media_file).unwrap(), orig_media_bytes);
+            assert_eq!(fs::read(&sidecar_file).unwrap(), orig_sidecar_bytes);
+
+            fs::remove_dir_all(media_dir).unwrap();
+        }
         fs::remove_file(path).unwrap();
     }
 

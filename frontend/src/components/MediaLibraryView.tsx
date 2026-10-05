@@ -150,7 +150,9 @@ export function MediaLibraryView({ onClose }: Props) {
           </button>
         ))}
         <div className="flex-1" />
-        <button type="button" onClick={handleProcessCaptions} disabled={processingCaptions} className="px-3 py-2 rounded-xl border border-purple-500/30 text-xs text-purple-300 hover:bg-purple-500/10 disabled:opacity-50 transition">{processingCaptions ? 'Processing…' : 'Process captions'}</button>
+        {!isTauri && (
+          <button type="button" onClick={handleProcessCaptions} disabled={processingCaptions} className="px-3 py-2 rounded-xl border border-purple-500/30 text-xs text-purple-300 hover:bg-purple-500/10 disabled:opacity-50 transition">{processingCaptions ? 'Processing…' : 'Process captions'}</button>
+        )}
         <button type="button" onClick={clearFilters} className="text-xs text-zinc-500 hover:text-zinc-200 transition">Clear filters</button>
       </div>
 

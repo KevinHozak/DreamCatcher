@@ -1,8 +1,12 @@
 import json
 import sys
 from pathlib import Path
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+onnx = pytest.importorskip("onnx")
+ort = pytest.importorskip("onnxruntime")
 
 from core.face_benchmark import execute_full_suite, evaluate_false_positive_tendencies, assert_zero_network
 

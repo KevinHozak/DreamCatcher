@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.fixture_generator import generate_synthetic_takeout_fixture
 from core.executor import execute_triage_plan, rollback_triage_plan
 from core.inventory import inventory_stats, query_inventory, scan_inventory
+from core.captions import update_user_description
 from core.duplicates import analyze_exact_duplicates, duplicate_groups, export_cleanup_proposal
 from core.people_search import people_search_status, delete_people_search_index
 
@@ -402,3 +403,67 @@ def test_synthetic_fixture_duplicate_review_and_people_search_safety(tmp_path):
     # Delete index cleans up safely
     del_res = delete_people_search_index(index_path=people_db)
     assert del_res["deleted"] is True
+
+
+def test_synthetic_fixture_caption_provenance_and_immutability(tmp_path):
+    """
+    Issue #40: Verifies description provenance import from synthetic Takeout fixture sidecars,
+    user description editing, persistence across rescans, and 100% media file and sidecar immutability.
+    """
+    fixture_dir = tmp_path / "takeout_fixture"
+    generate_synthetic_takeout_fixture(fixture_dir, seed=42)
+
+    takeout_root = fixture_dir / "Takeout"
+    db_path = fixture_dir / "inventory.sqlite3"
+
+    # Identify p1 (has supplemental sidecar with description "Morning walk at sunrise")
+    pic1 = fixture_dir / "Takeout" / "Google Photos" / "Photos from 2024" / "IMG_20240115_001.jpg"
+    sidecar1 = fixture_dir / "Takeout" / "Google Photos" / "Photos from 2024" / "IMG_20240115_001.jpg.supplemental-metadata.json"
+    assert pic1.exists() and sidecar1.exists()
+
+    orig_pic_hash = compute_sha256(pic1)
+    orig_sidecar_hash = compute_sha256(sidecar1)
+
+    # 1. Scan pictures
+    scan_inventory(takeout_root, "pictures", db_path)
+
+    # Verify description imported from sidecar
+    res = query_inventory("pictures", search="IMG_20240115_001", inventory_path=db_path)
+    assert res["total"] == 1
+    item = res["items"][0]
+    assert item["description"] == "Morning walk at sunrise"
+    assert item["description_source"] == "sidecar"
+    assert item["description_status"] == "complete"
+
+    # Verify files untouched
+    assert compute_sha256(pic1) == orig_pic_hash
+    assert compute_sha256(sidecar1) == orig_sidecar_hash
+
+    # 2. User edits description
+    db = sqlite3.connect(str(db_path))
+    db.row_factory = sqlite3.Row
+    try:
+        updated = update_user_description(db, item["identity"], "A beautiful morning walk with Alice")
+        assert updated["source"] == "user"
+        assert updated["description"] == "A beautiful morning walk with Alice"
+    finally:
+        db.close()
+
+    res_edited = query_inventory("pictures", search="IMG_20240115_001", inventory_path=db_path)
+    assert res_edited["items"][0]["description"] == "A beautiful morning walk with Alice"
+    assert res_edited["items"][0]["description_source"] == "user"
+
+    # Verify files remain untouched after edit
+    assert compute_sha256(pic1) == orig_pic_hash
+    assert compute_sha256(sidecar1) == orig_sidecar_hash
+
+    # 3. Rescan inventory - verify user edit is preserved and files are not touched
+    scan_inventory(takeout_root, "pictures", db_path)
+
+    res_rescanned = query_inventory("pictures", search="IMG_20240115_001", inventory_path=db_path)
+    assert res_rescanned["items"][0]["description"] == "A beautiful morning walk with Alice"
+    assert res_rescanned["items"][0]["description_source"] == "user"
+
+    assert compute_sha256(pic1) == orig_pic_hash
+    assert compute_sha256(sidecar1) == orig_sidecar_hash
+
