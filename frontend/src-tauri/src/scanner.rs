@@ -28,6 +28,7 @@ pub struct MediaItem {
     pub tier: String,
     pub reason: String,
     pub caption: String,
+    pub caption_source: Option<String>,
     pub is_cached: Option<bool>,
 }
 
@@ -312,7 +313,7 @@ pub fn scan_directory(
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
             let is_video = is_video_ext(&ext);
 
-            let (desc_opt, _) = extract_description(p, sidecar.as_deref());
+            let (desc_opt, source_opt) = extract_description(p, sidecar.as_deref());
             let caption = desc_opt.unwrap_or_default();
 
             records.push(MediaItem {
@@ -334,6 +335,7 @@ pub fn scan_directory(
                 tier: "MIXED".to_string(),
                 reason: String::new(),
                 caption,
+                caption_source: source_opt,
                 is_cached: None,
             });
         }

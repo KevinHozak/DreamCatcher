@@ -26,6 +26,7 @@ export interface MediaItem {
   tier: 'OBVIOUS' | 'MIXED';
   reason: string;
   caption: string;
+  caption_source?: string | null;
   is_cached?: boolean;
 }
 
