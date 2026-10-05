@@ -1,4 +1,4 @@
-use crate::scanner::{extract_description, scan_directory, MediaItem};
+use crate::scanner::{scan_directory, MediaItem};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -259,8 +259,12 @@ pub fn scan(
     let (items, discovered) = scan_directory(&root_path, None)?;
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     for item in items {
-        let sidecar_opt = item.sidecar_path.as_deref().map(Path::new);
-        let (desc, source) = extract_description(Path::new(&item.path), sidecar_opt);
+        let desc = if item.caption.is_empty() {
+            None
+        } else {
+            Some(item.caption.clone())
+        };
+        let source = item.caption_source.clone();
         let r = to_record(item, &root_kind, &scan_id);
         upsert_record(&tx, &r)?;
         upsert_imported_description(&tx, &r.identity, desc.as_deref(), source.as_deref())?;
@@ -752,8 +756,12 @@ mod tests {
             assert_eq!(items[0].caption, "Family vacation on the beach");
 
             for item in items {
-                let sidecar_opt = item.sidecar_path.as_deref().map(Path::new);
-                let (desc, source) = extract_description(Path::new(&item.path), sidecar_opt);
+                let desc = if item.caption.is_empty() {
+                    None
+                } else {
+                    Some(item.caption.clone())
+                };
+                let source = item.caption_source.clone();
                 let r = to_record(item, "pictures", "scan-1");
                 upsert_record(&conn, &r).unwrap();
                 upsert_imported_description(&conn, &r.identity, desc.as_deref(), source.as_deref())
@@ -782,8 +790,12 @@ mod tests {
             // Rescan should NOT overwrite user description with sidecar description
             let (rescan_items, _) = scan_directory(&test_root, None).unwrap();
             for item in rescan_items {
-                let sidecar_opt = item.sidecar_path.as_deref().map(Path::new);
-                let (desc, source) = extract_description(Path::new(&item.path), sidecar_opt);
+                let desc = if item.caption.is_empty() {
+                    None
+                } else {
+                    Some(item.caption.clone())
+                };
+                let source = item.caption_source.clone();
                 let r = to_record(item, "pictures", "scan-2");
                 upsert_record(&conn, &r).unwrap();
                 upsert_imported_description(&conn, &r.identity, desc.as_deref(), source.as_deref())
