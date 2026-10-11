@@ -89,3 +89,7 @@ feature parity; see [the roadmap](implementation_plan.md).
 The current issue list and roadmap are maintained in GitHub:
 [DreamCatcher issues](https://github.com/KevinHozak/DreamCatcher/issues) ·
 [development project board](https://github.com/KevinHozak/DreamCatcher/projects).
+
+## License
+
+Released under the [MIT License](LICENSE) (`Copyright (c) 2026 Kevin Hozak`). See [`LICENSE`](LICENSE) and [`docs/people-search-feasibility.md`](docs/people-search-feasibility.md) for third-party runtime and model weight exclusions.
