@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv/
+.pytest_cache/
 *.log
 
 # Node
@@ -20,6 +21,7 @@ target/
 *.tmp
 vision_cache.json
 _bucket_review_state.json
+.worktrees/
 
 # OS
 Thumbs.db
