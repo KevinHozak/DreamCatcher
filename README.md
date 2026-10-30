@@ -93,3 +93,21 @@ The current issue list and roadmap are maintained in GitHub:
 ## License
 
 Released under the [MIT License](LICENSE) (`Copyright (c) 2026 Kevin Hozak`). See [`LICENSE`](LICENSE) and [`docs/people-search-feasibility.md`](docs/people-search-feasibility.md) for third-party runtime and model weight exclusions.
+
+
+### Optional Portal remote review
+
+The native review flow is wired to Portal 0.2.8's registered consent host. It is
+inactive by default: this release does not register a host, provision credentials,
+enable a route or increase budgets. Only generated synthetic RGB examples are
+qualified. Selected personal media is rejected before reading, decoding or cache
+access; local Ollama remains the default with no automatic remote fallback.
+
+The native app owns the preview and launches only an explicitly registered,
+hash-verified host. Portal's final native consent window and production policy,
+metadata, credential and budget checks remain mandatory. The helper shares the
+existing durable ledger and returns a bounded provenance/usage receipt, never a
+key or grant. Results are displayed without changing files or descriptions.
+Cancellation and app shutdown terminate the owned child; uncertain admitted work
+retains its full hold with no retry. The generated-only qualification view always
+blocks remote sends. The optional Python API remains separate and unchanged.

@@ -19,3 +19,13 @@ export async function finishPortalReview(sessionId: string, fingerprint: string,
 export async function cancelPortalReview(sessionId: string): Promise<void> {
   try { nativeOnly(); await invoke('portal_cancel_review', { sessionId }); } catch { /* No retry or fallback. */ }
 }
+
+export interface PortalReceipt {
+  contract: string; operation: string; status: string; billing_state: string;
+  model: string; endpoint: string; cost_usd_micros?: number | null; tokens?: number | null;
+  classification?: string | null; code?: string | null;
+}
+export async function sendPortalReview(sessionId: string, fingerprint: string): Promise<PortalReceipt> {
+  nativeOnly();
+  return invoke('portal_send_review', { sessionId, fingerprint });
+}

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { cancelPortalReview, finishPortalReview, preparePortalReview, type PortalPreview, type PortalSource } from '../services/portalReview';
+import { cancelPortalReview, finishPortalReview, preparePortalReview, sendPortalReview, type PortalPreview, type PortalSource, type PortalReceipt } from '../services/portalReview';
 
 export function PortalImageReview({ initialSource = 'selection', onClose }: { initialSource?: PortalSource; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const current = useRef<PortalPreview | null>(null);
   const sequence = useRef(0);
+  const sending = useRef<string | null>(null);
+  const [receipt, setReceipt] = useState<PortalReceipt | null>(null);
   const [source, setSource] = useState<PortalSource>(initialSource);
   const [text, setText] = useState('Classify these generated colored shapes.');
   const [redact, setRedact] = useState(true);
@@ -16,7 +18,7 @@ export function PortalImageReview({ initialSource = 'selection', onClose }: { in
   const active = useRef(true);
   const refresh = async (nextSource: PortalSource) => {
     const request = ++sequence.current;
-    setBusy(true); setPreview(null); setExpired(false); setMessage('');
+    setBusy(true); setPreview(null); setExpired(false); setMessage(''); setReceipt(null);
     if (current.current) void cancelPortalReview(current.current.session_id);
     current.current = null;
     try {
@@ -30,6 +32,8 @@ export function PortalImageReview({ initialSource = 'selection', onClose }: { in
     active.current = false; sequence.current++;
     if (current.current) void cancelPortalReview(current.current.session_id);
     current.current = null;
+    if (sending.current) void cancelPortalReview(sending.current);
+    sending.current = null;
   };
   useEffect(() => {
     active.current = true;
@@ -59,12 +63,23 @@ export function PortalImageReview({ initialSource = 'selection', onClose }: { in
     } catch { if (active.current) { setMessage('Review expired or unavailable. Nothing was sent.'); setExpired(true); } }
     finally { if (active.current) setBusy(false); }
   };
+  const send = async () => {
+    const p = current.current;
+    if (!p || !p.can_send || busy || expired || text !== p.text || redact !== p.redact) return;
+    current.current = null; sending.current = p.session_id; setBusy(true); setReceipt(null);
+    setMessage('Waiting for native Portal consent…');
+    try {
+      const value = await sendPortalReview(p.session_id, p.fingerprint);
+      if (active.current) { setReceipt(value); setMessage(value.status === 'settled' ? 'Remote review completed.' : `Remote review: ${value.code || value.status}.`); setExpired(true); }
+    } catch { if (active.current) { setMessage('Native host unavailable. Billing outcome unknown. No retry was made.'); setExpired(true); } }
+    finally { sending.current = null; if (active.current) setBusy(false); }
+  };
   return <dialog ref={dialog} aria-labelledby="portal-review-title" onCancel={e => { e.preventDefault(); onClose(); }}
     className="m-auto w-[min(42rem,95vw)] max-h-[90vh] overflow-y-auto rounded-2xl border border-zinc-600 bg-zinc-950 p-6 text-zinc-100 backdrop:bg-black/80">
     <h2 id="portal-review-title" className="text-xl font-semibold">Review remote image request</h2>
     <p className="mt-2 text-sm text-zinc-300">dreamcatcher · classify-image</p>
-    <p className="break-all text-xs text-zinc-400">google/gemini-3.5-flash-lite · google-vertex/eu</p>
-    <p className="mt-3 text-sm">Remote vision is not qualified. Personal media cannot be sent.</p>
+    <p className="break-all text-xs text-zinc-400">google/gemini-3.5-flash-lite · google-vertex/us</p>
+    <p className="mt-3 text-sm">Remote vision requires an operator-enabled Portal route and native consent. Personal media cannot be sent.</p>
     <div className="my-4 flex gap-3">
       <button type="button" onClick={() => { setSource('generated'); void refresh('generated'); }} disabled={busy}
         className="rounded border border-zinc-600 p-2">Use generated example</button>
@@ -85,11 +100,17 @@ export function PortalImageReview({ initialSource = 'selection', onClose }: { in
       <p className="text-xs">One RGB PNG · 32 × 32 pixels · Output limit: {preview.max_tokens} tokens</p>
     </figure>}
     <p role="status" className="my-4 text-sm text-amber-200">{message || (busy ? 'Preparing review…' : expired ? 'Review expired or used. Update the preview to review again.' : preview?.message)}</p>
+    {receipt && <section aria-label="Remote review receipt" className="my-3 rounded border border-zinc-700 p-3 text-sm">
+      <p>{receipt.model} · {receipt.endpoint}</p>
+      <p>Billing: {receipt.billing_state}{receipt.cost_usd_micros != null ? ` · $${(receipt.cost_usd_micros / 1_000_000).toFixed(6)} · ${receipt.tokens} tokens` : ' · cost unknown'}</p>
+      {receipt.classification && <pre className="mt-2 whitespace-pre-wrap break-words">{receipt.classification}</pre>}
+    </section>}
     <div className="flex flex-wrap justify-end gap-3">
       <button ref={cancel} type="button" onClick={onClose} className="rounded border border-zinc-500 px-4 py-2">Cancel</button>
       <button type="button" disabled={busy || expired || !preview?.can_confirm_offline || text !== preview.text || redact !== preview.redact}
         onClick={() => void confirm()} className="rounded border border-cyan-500 px-4 py-2 disabled:opacity-40">Confirm offline review once</button>
-      <button type="button" disabled className="rounded border border-zinc-700 px-4 py-2 opacity-40">Send remotely — unavailable</button>
+      <button type="button" disabled={busy || expired || !preview?.can_send || text !== preview.text || redact !== preview.redact}
+        onClick={() => void send()} className="rounded border border-zinc-700 px-4 py-2 disabled:opacity-40">Review and send remotely</button>
     </div>
   </dialog>;
 }

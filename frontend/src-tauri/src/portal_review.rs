@@ -1,14 +1,20 @@
-//! S010 native-owned consent rehearsal. No file reader, credentials or transport.
+//! Native-owned per-action review. Selected media is never read; the registered
+//! Portal host alone owns credentials, final native consent and provider dispatch.
+use crate::portal_host::{self, Receipt, Request};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use portal_client::image::ImageReview;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use sha2::{Digest, Sha256};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::time::{Duration, Instant};
 use tauri::{Manager, State, WebviewWindow};
 
 const MODEL: &str = "google/gemini-3.5-flash-lite";
-const ENDPOINT: &str = "google-vertex/eu";
-const POLICY: &str = "s010-unqualified-v1";
+const ENDPOINT: &str = "google-vertex/us";
+const POLICY: &str = "s010-us-context-v1-disabled-until-operator-approval";
 #[cfg(test)]
 const TEXT: &str = "Classify these generated colored shapes.";
 #[derive(Clone, Copy, Deserialize, PartialEq)]
@@ -47,9 +53,14 @@ struct Pending {
     fingerprint: String,
     expires: Instant,
     review: Option<ImageReview>,
+    request: Option<Request>,
 }
 #[derive(Default)]
-pub struct Reviews(Mutex<Option<Pending>>);
+pub struct Reviews(
+    Mutex<Option<Pending>>,
+    Mutex<Option<(String, String, Arc<AtomicBool>)>>,
+    bool,
+);
 fn error() -> String {
     "IMAGE_CAPABILITY_UNQUALIFIED".into()
 }
@@ -59,9 +70,15 @@ fn nonce() -> Result<String, String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 impl Reviews {
+    pub fn new(qualification: bool) -> Self {
+        Self(Mutex::new(None), Mutex::new(None), qualification)
+    }
     pub fn prepare(&self, owner: &str, args: PrepareArgs) -> Result<Preview, String> {
         if owner != "main" {
             return Err(error());
+        }
+        if self.1.lock().map_err(|_| error())?.is_some() {
+            return Err("REMOTE_REVIEW_BUSY".into());
         }
         let mut state = self.0.lock().map_err(|_| error())?;
         *state = None; // Invalid preparation also revokes the older preview.
@@ -70,6 +87,7 @@ impl Reviews {
         }
         let id = nonce()?;
         // Selection is denied before any filesystem, decoder, cache or network access.
+        let mut pixel_sha256 = String::new();
         let review = if args.source == Source::Generated {
             let mut rgb = vec![0u8; 32 * 32 * 3];
             for y in 0..32 {
@@ -88,6 +106,13 @@ impl Reviews {
             } else {
                 vec![]
             };
+            let mut reviewed = rgb.clone();
+            if args.redact {
+                for y in 0..8 {
+                    reviewed[y * 32 * 3..y * 32 * 3 + 8 * 3].fill(0);
+                }
+            }
+            pixel_sha256 = format!("{:x}", Sha256::digest(&reviewed));
             Some(
                 ImageReview::new(
                     &id,
@@ -112,12 +137,21 @@ impl Reviews {
             .as_ref()
             .map(|r| format!("data:image/png;base64,{}", STANDARD.encode(r.png())));
         let generated = review.is_some();
+        let can_send = generated && !self.2 && portal_host::available();
+        let request = generated.then(|| Request {
+            contract: portal_host::CONTRACT,
+            operation: id.clone(),
+            text: args.text.clone(),
+            redact: args.redact,
+            pixel_sha256,
+        });
         *state = Some(Pending {
             owner: owner.into(),
             id: id.clone(),
             fingerprint: fingerprint.clone(),
             expires: Instant::now() + Duration::from_secs(60),
             review,
+            request,
         });
         Ok(Preview {
             session_id: id,
@@ -131,9 +165,11 @@ impl Reviews {
             text: if generated { args.text } else { String::new() },
             max_tokens: 64,
             redact: args.redact,
-            can_send: false,
+            can_send,
             can_confirm_offline: generated,
-            message: if generated {
+            message: if can_send {
+                "Portal will open a native consent window before sending."
+            } else if generated {
                 "Generated example only. Confirmation sends nothing."
             } else {
                 "Remote vision is unavailable. No selected media was read or sent."
@@ -166,6 +202,50 @@ impl Reviews {
             .map_err(|_| "REVIEW_STALE".to_string())?;
         Ok("offline_reviewed")
     }
+    pub fn send(&self, owner: &str, id: &str, fingerprint: &str) -> Result<Receipt, String> {
+        self.send_using(owner, id, fingerprint, portal_host::launch)
+    }
+    fn send_using<F>(
+        &self,
+        owner: &str,
+        id: &str,
+        fingerprint: &str,
+        launch: F,
+    ) -> Result<Receipt, String>
+    where
+        F: FnOnce(Request, Arc<AtomicBool>) -> Receipt,
+    {
+        if self.2 {
+            return Err(error());
+        }
+        let mut state = self.0.lock().map_err(|_| error())?;
+        let p = state.as_ref().ok_or_else(|| "REVIEW_STALE".to_string())?;
+        if p.owner != owner || owner != "main" || p.id != id {
+            return Err("REVIEW_STALE".into());
+        }
+        let mut job = self.1.lock().map_err(|_| error())?;
+        if job.is_some() {
+            return Err("REMOTE_REVIEW_BUSY".into());
+        }
+        let mut p = state.take().unwrap();
+        if p.expires <= Instant::now() || p.fingerprint != fingerprint {
+            return Err("REVIEW_STALE".into());
+        }
+        let mut review = p.review.take().ok_or_else(error)?;
+        let _approved = review
+            .approve(fingerprint)
+            .map_err(|_| "REVIEW_STALE".to_string())?;
+        let request = p.request.take().ok_or_else(error)?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        *job = Some((owner.into(), id.into(), cancel.clone()));
+        drop(job);
+        drop(state);
+        let receipt = launch(request, cancel);
+        if let Ok(mut job) = self.1.lock() {
+            *job = None;
+        }
+        Ok(receipt)
+    }
     pub fn cancel(&self, owner: &str, id: Option<&str>) {
         if let Ok(mut state) = self.0.lock() {
             if state
@@ -173,6 +253,13 @@ impl Reviews {
                 .is_some_and(|p| p.owner == owner && id.is_none_or(|id| p.id == id))
             {
                 *state = None;
+            }
+        }
+        if let Ok(job) = self.1.lock() {
+            if let Some((who, op, cancel)) = job.as_ref() {
+                if who == owner && id.is_none_or(|id| id == op) {
+                    cancel.store(true, Ordering::Release);
+                }
             }
         }
     }
@@ -207,6 +294,22 @@ pub fn portal_finish_review(
     send: bool,
 ) -> Result<&'static str, String> {
     state.finish(&owner(&window)?, &session_id, &fingerprint, send)
+}
+#[tauri::command]
+pub async fn portal_send_review(
+    window: WebviewWindow,
+    state: State<'_, Reviews>,
+    session_id: String,
+    fingerprint: String,
+) -> Result<Receipt, String> {
+    let who = owner(&window)?;
+    let app = window.app_handle().clone();
+    drop(state);
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Reviews>().send(&who, &session_id, &fingerprint)
+    })
+    .await
+    .map_err(|_| "NATIVE_HOST_UNRESOLVED".to_string())?
 }
 #[tauri::command]
 pub fn portal_cancel_review(
@@ -294,6 +397,65 @@ mod tests {
         assert!(s
             .finish("main", &p.session_id, &p.fingerprint, false)
             .is_err());
+    }
+    #[test]
+    fn native_send_consumes_review_and_qualification_cannot_launch() {
+        let state = Reviews::default();
+        let p = state.prepare("main", args(Source::Generated)).unwrap();
+        let result = state
+            .send_using("main", &p.session_id, &p.fingerprint, |request, cancel| {
+                assert_eq!(request.operation, p.session_id);
+                assert_eq!(
+                    request.pixel_sha256,
+                    "0c3a237648b687d3fe12ccaf4b43ce34d4bb47fbe2e4f799ecacbc874eb78931"
+                );
+                assert!(!cancel.load(Ordering::Acquire));
+                Receipt::local(&request.operation, "NATIVE_HOST_UNAVAILABLE", false)
+            })
+            .unwrap();
+        assert_eq!(result.billing_state, "not_admitted");
+        assert!(state.send("main", &p.session_id, &p.fingerprint).is_err());
+        let state = Reviews::new(true);
+        let p = state.prepare("main", args(Source::Generated)).unwrap();
+        assert!(!p.can_send);
+        assert!(state
+            .send_using("main", &p.session_id, &p.fingerprint, |_, _| panic!(
+                "qualification cannot launch"
+            ))
+            .is_err());
+        let state = Reviews::default();
+        let p = state.prepare("main", args(Source::Selection)).unwrap();
+        assert!(state
+            .send_using("main", &p.session_id, &p.fingerprint, |_, _| panic!(
+                "selection cannot launch"
+            ))
+            .is_err());
+    }
+    #[test]
+    fn cancelling_running_host_marks_it_and_prevents_overlap() {
+        let state = Arc::new(Reviews::default());
+        let p = state.prepare("main", args(Source::Generated)).unwrap();
+        let id = p.session_id.clone();
+        let fp = p.fingerprint.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = state.clone();
+        let thread = std::thread::spawn(move || {
+            worker
+                .send_using("main", &id, &fp, |request, cancel| {
+                    tx.send(()).unwrap();
+                    let deadline = Instant::now() + Duration::from_secs(3);
+                    while !cancel.load(Ordering::Acquire) && Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    assert!(cancel.load(Ordering::Acquire));
+                    Receipt::local(&request.operation, "NATIVE_HOST_CANCELLED", true)
+                })
+                .unwrap()
+        });
+        rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(state.prepare("main", args(Source::Generated)).is_err());
+        state.cancel("main", Some(&p.session_id));
+        assert_eq!(thread.join().unwrap().billing_state, "unknown");
     }
     #[test]
     fn invalid_input_and_changed_fingerprint_revoke() {
