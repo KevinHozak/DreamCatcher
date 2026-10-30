@@ -1,0 +1,10 @@
+{
+  "repository": "KevinHozak/Navis-Portal",
+  "commit": "28f884293d4154c651120383e2e8d90c53725647",
+  "sdk_version": "1.1.0",
+  "sha256": {
+    "Cargo.toml": "4e35a8e5e47d510648b9ce37ba949d23a5aa0d42fd4d9967b1a4fd49d2284edd",
+    "src/lib.rs": "a275443594c662fc517367acbedab228da920dcad74e7a1876720eb609158071",
+    "src/image.rs": "a07d2e225910e980ee8aa0314edb55e656a23414249d525c583c56858f15c3df"
+  }
+}

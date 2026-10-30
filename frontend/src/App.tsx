@@ -23,6 +23,7 @@ import {
   fetchSettings
 } from './services/api';
 import { CleanSweepView } from './components/CleanSweepView';
+import { PortalImageReview } from './components/PortalImageReview';
 import { DecisionDeckView } from './components/DecisionDeckView';
 import { ClusterView } from './components/ClusterView';
 import { ExecutionModal } from './components/ExecutionModal';
@@ -33,6 +34,7 @@ import { DuplicateReviewView } from './components/DuplicateReviewView';
 type Step = 'ingest' | 'clean_sweep' | 'decision_deck' | 'clustering';
 
 export function App() {
+  const [portalReview, setPortalReview] = useState(false);
   const [step, setStep] = useState<Step>('ingest');
   const [sourceDir, setSourceDir] = useState<string>('C:\\Transfer\\Takeout\\K Photos\\2024');
   const [settings, setSettings] = useState<AppSettings>({
@@ -364,6 +366,7 @@ export function App() {
             </span>
           </button>
 
+          <button type="button" onClick={() => setPortalReview(true)} className="rounded-xl border border-zinc-700 px-3 py-1.5 text-xs">Remote vision review</button>
           <select
             value={backend}
             onChange={(e) => setBackend(e.target.value as any)}
@@ -613,6 +616,7 @@ export function App() {
           <DecisionDeckView
             mixedItems={mixedItems}
             backend={backend}
+            onRemoteReview={() => setPortalReview(true)}
             onComplete={handleDecisionDeckComplete}
             onBack={() => setStep('clean_sweep')}
           />
@@ -630,6 +634,7 @@ export function App() {
         )}
       </main>
 
+      {portalReview && <PortalImageReview onClose={() => setPortalReview(false)} />}
       {/* Execution Modal */}
       {showExecutionModal && (
         <ExecutionModal

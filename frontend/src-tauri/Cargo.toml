@@ -1,6 +1,6 @@
 [package]
 name = "dreamcatcher"
-version = "1.9.3"
+version = "1.9.4"
 description = "DreamCatcher - Local AI Photo Triage Cockpit"
 authors = ["Kevin Hozak"]
 license = "MIT"
@@ -15,6 +15,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
+portal-client = { path = "vendor/portal-client" }
+getrandom = "=0.3.4"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"

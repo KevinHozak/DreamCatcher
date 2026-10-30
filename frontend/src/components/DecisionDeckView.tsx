@@ -20,9 +20,10 @@ interface Props {
   backend?: 'ollama' | 'gemini';
   onComplete: (decisions: Record<string, { item: MediaItem; decision: DecisionType }>) => void;
   onBack: () => void;
+  onRemoteReview: () => void;
 }
 
-export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollama', onComplete, onBack }) => {
+export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollama', onComplete, onBack, onRemoteReview }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [decisions, setDecisions] = useState<Record<string, { item: MediaItem; decision: DecisionType }>>({});
   const [history, setHistory] = useState<string[]>([]);
@@ -135,6 +136,7 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollam
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.querySelector("dialog[open]")) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowLeft') {
@@ -214,6 +216,7 @@ export const DecisionDeckView: React.FC<Props> = ({ mixedItems, backend = 'ollam
         </div>
 
         <div className="flex items-center gap-3">
+          <button type="button" onClick={onRemoteReview} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs">Review remotely</button>
           <button
             onClick={handleStreamAllAi}
             disabled={isStreamingAi}

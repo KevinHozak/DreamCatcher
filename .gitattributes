@@ -1,0 +1,2 @@
+# Preserve SDK bytes against UPSTREAM.json.
+/frontend/src-tauri/vendor/portal-client/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

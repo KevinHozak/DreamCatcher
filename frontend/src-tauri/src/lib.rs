@@ -1,3 +1,4 @@
+mod portal_review;
 mod classifier;
 mod clustering;
 mod duplicates;
@@ -351,7 +352,15 @@ fn url_decode(input: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    if std::env::args().any(|arg| arg == "--portal-consent-qualification") {
+        context.config_mut().app.windows[0].title = "DreamCatcher - Generated consent qualification".into();
+        context.config_mut().app.windows[0].data_directory = Some(format!("DreamCatcherConsentQualification/{}", std::process::id()).into());
+        context.config_mut().app.windows[0].url = tauri::WebviewUrl::App("index.html#portal-consent-qualification".into());
+    }
     tauri::Builder::default()
+        .manage(portal_review::Reviews::default())
+        .on_window_event(portal_review::close_window)
         .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol("dc-media", |_app, request| {
             let uri = request.uri().to_string();
@@ -425,6 +434,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            portal_review::portal_prepare_review,
+            portal_review::portal_finish_review,
+            portal_review::portal_cancel_review,
             get_settings,
             save_settings,
             get_people_search_status,
@@ -445,6 +457,6 @@ pub fn run() {
             export_duplicate_proposal,
             exclude_duplicate_member,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }
