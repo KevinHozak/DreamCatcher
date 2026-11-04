@@ -55,12 +55,45 @@ struct Pending {
     review: Option<ImageReview>,
     request: Option<Request>,
 }
+struct Active {
+    owner: String,
+    id: String,
+    fingerprint: String,
+    expires: Instant,
+    cancel: Arc<AtomicBool>,
+}
 #[derive(Default)]
-pub struct Reviews(
-    Mutex<Option<Pending>>,
-    Mutex<Option<(String, String, Arc<AtomicBool>)>>,
-    bool,
-);
+pub struct Reviews(Mutex<Option<Pending>>, Arc<Mutex<Option<Active>>>, bool);
+struct ActiveGuard {
+    state: Arc<Mutex<Option<Active>>>,
+    id: String,
+    cancel: Arc<AtomicBool>,
+}
+impl Drop for ActiveGuard {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            if state.as_ref().is_some_and(|active| {
+                active.id == self.id && Arc::ptr_eq(&active.cancel, &self.cancel)
+            }) {
+                *state = None;
+            }
+        }
+    }
+}
+struct InFlight {
+    request: Request,
+    cancel: Arc<AtomicBool>,
+    current: Arc<dyn Fn() -> bool + Send + Sync>,
+    _guard: ActiveGuard,
+}
+impl InFlight {
+    fn execute<F>(self, launch: F) -> Receipt
+    where
+        F: FnOnce(Request, Arc<AtomicBool>, Arc<dyn Fn() -> bool + Send + Sync>) -> Receipt,
+    {
+        launch(self.request, self.cancel.clone(), self.current.clone())
+    }
+}
 fn error() -> String {
     "IMAGE_CAPABILITY_UNQUALIFIED".into()
 }
@@ -71,7 +104,7 @@ fn nonce() -> Result<String, String> {
 }
 impl Reviews {
     pub fn new(qualification: bool) -> Self {
-        Self(Mutex::new(None), Mutex::new(None), qualification)
+        Self(Mutex::new(None), Arc::new(Mutex::new(None)), qualification)
     }
     pub fn prepare(&self, owner: &str, args: PrepareArgs) -> Result<Preview, String> {
         if owner != "main" {
@@ -137,6 +170,8 @@ impl Reviews {
             .as_ref()
             .map(|r| format!("data:image/png;base64,{}", STANDARD.encode(r.png())));
         let generated = review.is_some();
+        // A preview may inspect the fixed registered runtime/profile for honest
+        // metadata, but never reads credentials, starts the host, or reads media.
         let can_send = generated && !self.2 && portal_host::available();
         let request = generated.then(|| Request {
             contract: portal_host::CONTRACT,
@@ -168,7 +203,7 @@ impl Reviews {
             can_send,
             can_confirm_offline: generated,
             message: if can_send {
-                "Portal will open a native consent window before sending."
+                "An explicit send will check the shared Portal and request native consent if eligible."
             } else if generated {
                 "Generated example only. Confirmation sends nothing."
             } else {
@@ -202,9 +237,11 @@ impl Reviews {
             .map_err(|_| "REVIEW_STALE".to_string())?;
         Ok("offline_reviewed")
     }
-    pub fn send(&self, owner: &str, id: &str, fingerprint: &str) -> Result<Receipt, String> {
-        self.send_using(owner, id, fingerprint, portal_host::launch)
+    #[cfg(test)]
+    fn send(&self, owner: &str, id: &str, fingerprint: &str) -> Result<Receipt, String> {
+        self.send_using_checked(owner, id, fingerprint, || true, portal_host::launch)
     }
+    #[cfg(test)]
     fn send_using<F>(
         &self,
         owner: &str,
@@ -214,6 +251,40 @@ impl Reviews {
     ) -> Result<Receipt, String>
     where
         F: FnOnce(Request, Arc<AtomicBool>) -> Receipt,
+    {
+        self.send_using_checked(
+            owner,
+            id,
+            fingerprint,
+            || true,
+            |request, cancel, _current| launch(request, cancel),
+        )
+    }
+    #[cfg(test)]
+    fn send_using_checked<F, V>(
+        &self,
+        owner: &str,
+        id: &str,
+        fingerprint: &str,
+        native_valid: V,
+        launch: F,
+    ) -> Result<Receipt, String>
+    where
+        F: FnOnce(Request, Arc<AtomicBool>, Arc<dyn Fn() -> bool + Send + Sync>) -> Receipt,
+        V: Fn() -> bool + Send + Sync + 'static,
+    {
+        let flight = self.begin_send(owner, id, fingerprint, native_valid)?;
+        Ok(flight.execute(launch))
+    }
+    fn begin_send<V>(
+        &self,
+        owner: &str,
+        id: &str,
+        fingerprint: &str,
+        native_valid: V,
+    ) -> Result<InFlight, String>
+    where
+        V: Fn() -> bool + Send + Sync + 'static,
     {
         if self.2 {
             return Err(error());
@@ -237,14 +308,46 @@ impl Reviews {
             .map_err(|_| "REVIEW_STALE".to_string())?;
         let request = p.request.take().ok_or_else(error)?;
         let cancel = Arc::new(AtomicBool::new(false));
-        *job = Some((owner.into(), id.into(), cancel.clone()));
+        *job = Some(Active {
+            owner: owner.into(),
+            id: id.into(),
+            fingerprint: p.fingerprint,
+            expires: p.expires,
+            cancel: cancel.clone(),
+        });
+        let active_owner = owner.to_owned();
+        let active_id = id.to_owned();
+        let active_fingerprint = fingerprint.to_owned();
+        let active_state = self.1.clone();
+        let active_cancel = cancel.clone();
+        let expires = p.expires;
+        let current: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
+            !active_cancel.load(Ordering::Acquire)
+                && Instant::now() < expires
+                && active_state.lock().ok().is_some_and(|active| {
+                    active.as_ref().is_some_and(|current| {
+                        current.owner == active_owner
+                            && current.id == active_id
+                            && current.fingerprint == active_fingerprint
+                            && current.expires == expires
+                            && Arc::ptr_eq(&current.cancel, &active_cancel)
+                    })
+                })
+                && native_valid()
+        });
         drop(job);
         drop(state);
-        let receipt = launch(request, cancel);
-        if let Ok(mut job) = self.1.lock() {
-            *job = None;
-        }
-        Ok(receipt)
+        let _active_guard = ActiveGuard {
+            state: self.1.clone(),
+            id: id.to_owned(),
+            cancel: cancel.clone(),
+        };
+        Ok(InFlight {
+            request,
+            cancel,
+            current,
+            _guard: _active_guard,
+        })
     }
     pub fn cancel(&self, owner: &str, id: Option<&str>) {
         if let Ok(mut state) = self.0.lock() {
@@ -255,10 +358,10 @@ impl Reviews {
                 *state = None;
             }
         }
-        if let Ok(job) = self.1.lock() {
-            if let Some((who, op, cancel)) = job.as_ref() {
-                if who == owner && id.is_none_or(|id| id == op) {
-                    cancel.store(true, Ordering::Release);
+        if let Ok(active) = self.1.lock() {
+            if let Some(active) = active.as_ref() {
+                if active.owner == owner && id.is_none_or(|id| id == active.id) {
+                    active.cancel.store(true, Ordering::Release);
                 }
             }
         }
@@ -303,13 +406,15 @@ pub async fn portal_send_review(
     fingerprint: String,
 ) -> Result<Receipt, String> {
     let who = owner(&window)?;
-    let app = window.app_handle().clone();
+    let current_window = window.clone();
+    // Register/consume the one-use operation before spawn_blocking can queue.
+    let flight = state.begin_send(&who, &session_id, &fingerprint, move || {
+        owner(&current_window).is_ok()
+    })?;
     drop(state);
-    tauri::async_runtime::spawn_blocking(move || {
-        app.state::<Reviews>().send(&who, &session_id, &fingerprint)
-    })
-    .await
-    .map_err(|_| "NATIVE_HOST_UNRESOLVED".to_string())?
+    tauri::async_runtime::spawn_blocking(move || Ok(flight.execute(portal_host::launch)))
+        .await
+        .map_err(|_| "NATIVE_HOST_UNRESOLVED".to_string())?
 }
 #[tauri::command]
 pub fn portal_cancel_review(
@@ -321,7 +426,10 @@ pub fn portal_cancel_review(
     Ok(())
 }
 pub fn close_window(window: &tauri::Window, event: &tauri::WindowEvent) {
-    if matches!(event, tauri::WindowEvent::Destroyed) {
+    if matches!(
+        event,
+        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+    ) {
         window.state::<Reviews>().cancel(window.label(), None);
     }
 }
@@ -430,6 +538,56 @@ mod tests {
                 "selection cannot launch"
             ))
             .is_err());
+    }
+    #[test]
+    fn current_review_is_rechecked_after_host_start_before_dispatch() {
+        let state = Reviews::default();
+        let p = state.prepare("main", args(Source::Generated)).unwrap();
+        let still_native = Arc::new(AtomicBool::new(true));
+        let current_native = still_native.clone();
+        let dispatched = Arc::new(AtomicBool::new(false));
+        let observed_dispatch = dispatched.clone();
+        let result = state
+            .send_using_checked(
+                "main",
+                &p.session_id,
+                &p.fingerprint,
+                move || current_native.load(Ordering::Acquire),
+                move |request, _cancel, current| {
+                    // This callback represents a successful cold shared-host
+                    // acquire. The exact native review becomes stale before
+                    // the broker is allowed to receive its request.
+                    still_native.store(false, Ordering::Release);
+                    if !current() {
+                        return Receipt::local(&request.operation, "NATIVE_REVIEW_STALE", false);
+                    }
+                    observed_dispatch.store(true, Ordering::Release);
+                    panic!("stale review must not reach the broker");
+                },
+            )
+            .unwrap();
+        assert_eq!(result.billing_state, "not_admitted");
+        assert!(!dispatched.load(Ordering::Acquire));
+    }
+    #[test]
+    fn cancellation_before_queued_worker_starts_prevents_host_acquisition() {
+        let state = Reviews::default();
+        let p = state.prepare("main", args(Source::Generated)).unwrap();
+        let flight = state
+            .begin_send("main", &p.session_id, &p.fingerprint, || true)
+            .unwrap();
+        state.cancel("main", Some(&p.session_id));
+        let acquired = Arc::new(AtomicBool::new(false));
+        let attempted = acquired.clone();
+        let receipt = flight.execute(move |request, cancel, current| {
+            if cancel.load(Ordering::Acquire) || !current() {
+                return Receipt::local(&request.operation, "NATIVE_HOST_CANCELLED", false);
+            }
+            attempted.store(true, Ordering::Release);
+            panic!("cancelled queued operation must not acquire the host");
+        });
+        assert_eq!(receipt.billing_state, "not_admitted");
+        assert!(!acquired.load(Ordering::Acquire));
     }
     #[test]
     fn cancelling_running_host_marks_it_and_prevents_overlap() {

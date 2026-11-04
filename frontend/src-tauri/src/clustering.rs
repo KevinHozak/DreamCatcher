@@ -15,7 +15,14 @@ pub struct Cluster {
 }
 
 static GEO_CACHE: Mutex<Option<HashMap<(i32, i32), Option<String>>>> = Mutex::new(None);
-const LOCAL_CITIES: &[&str] = &["fargo", "west fargo", "moorhead", "dilworth", "horace", "harwood"];
+const LOCAL_CITIES: &[&str] = &[
+    "fargo",
+    "west fargo",
+    "moorhead",
+    "dilworth",
+    "horace",
+    "harwood",
+];
 
 pub fn get_holiday_name(d: NaiveDate) -> Option<&'static str> {
     let (year, month, day) = (d.year(), d.month(), d.day());
@@ -61,11 +68,7 @@ pub fn get_holiday_name(d: NaiveDate) -> Option<&'static str> {
     None
 }
 
-pub async fn reverse_geocode_city(
-    client: &reqwest::Client,
-    lat: f64,
-    lon: f64,
-) -> Option<String> {
+pub async fn reverse_geocode_city(client: &reqwest::Client, lat: f64, lon: f64) -> Option<String> {
     let key = ((lat * 1000.0).round() as i32, (lon * 1000.0).round() as i32);
 
     {
@@ -167,10 +170,14 @@ pub async fn cluster_items(
             if current_chunk.is_empty() {
                 current_chunk.push(it);
             } else {
-                let prev_dt = chrono::DateTime::parse_from_rfc3339(&current_chunk.last().unwrap().timestamp).ok();
+                let prev_dt =
+                    chrono::DateTime::parse_from_rfc3339(&current_chunk.last().unwrap().timestamp)
+                        .ok();
                 let curr_dt = chrono::DateTime::parse_from_rfc3339(&it.timestamp).ok();
                 let diff_hours = match (prev_dt, curr_dt) {
-                    (Some(p), Some(c)) => (c.signed_duration_since(p).num_seconds() as f64) / 3600.0,
+                    (Some(p), Some(c)) => {
+                        (c.signed_duration_since(p).num_seconds() as f64) / 3600.0
+                    }
                     _ => 0.0,
                 };
 

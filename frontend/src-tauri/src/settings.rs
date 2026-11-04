@@ -27,7 +27,11 @@ impl Default for AppSettings {
 fn clean_optional_path(value: Option<String>) -> Option<String> {
     value.and_then(|path| {
         let trimmed = path.trim().to_string();
-        if trimmed.is_empty() { None } else { Some(trimmed) }
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     })
 }
 
@@ -107,7 +111,8 @@ mod tests {
 
     #[test]
     fn allows_independent_optional_destinations() {
-        let root = std::env::temp_dir().join(format!("dreamcatcher-settings-test-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("dreamcatcher-settings-test-{}", std::process::id()));
         let source = root.join("source");
         let pictures = root.join("pictures");
         fs::create_dir_all(&source).unwrap();
@@ -125,7 +130,10 @@ mod tests {
 
     #[test]
     fn rejects_nested_destinations() {
-        let root = std::env::temp_dir().join(format!("dreamcatcher-settings-nested-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "dreamcatcher-settings-nested-{}",
+            std::process::id()
+        ));
         let source = root.join("source");
         let pictures = root.join("pictures");
         let videos = pictures.join("videos");
@@ -144,7 +152,10 @@ mod tests {
 
     #[test]
     fn test_settings_persistence_and_no_filesystem_mutation() {
-        let root = std::env::temp_dir().join(format!("dreamcatcher-settings-mutate-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "dreamcatcher-settings-mutate-{}",
+            std::process::id()
+        ));
         let source = root.join("source");
         let pictures = root.join("pictures");
         let videos = root.join("videos");

@@ -15,7 +15,11 @@ pub struct PeopleSearchStatus {
 }
 
 fn index_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app.path().app_data_dir().map_err(|e| format!("Could not locate app data folder: {e}"))?.join("people-index.sqlite3"))
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not locate app data folder: {e}"))?
+        .join("people-index.sqlite3"))
 }
 
 #[tauri::command]
@@ -32,7 +36,8 @@ pub fn status_for_index_path(index_path: &std::path::Path, enabled: bool) -> Peo
         // produced a usable index. No native face-indexing runtime is shipped.
         state: if !enabled { "disabled" } else { "not_ready" }.to_string(),
         message: if !enabled {
-            "People search is disabled. No face processing or face-derived data is created.".to_string()
+            "People search is disabled. No face processing or face-derived data is created."
+                .to_string()
         } else {
             "People search is enabled, but indexing is unavailable because no vetted local face runtime is configured. An existing derived database is not a usable index.".to_string()
         },
@@ -54,7 +59,12 @@ pub fn delete_index_at_path(path: &std::path::Path) -> Result<serde_json::Value,
     for suffix in ["", "-wal", "-shm"] {
         let candidate = PathBuf::from(format!("{base_str}{suffix}"));
         if candidate.exists() {
-            fs::remove_file(&candidate).map_err(|e| format!("Could not delete people-search file {}: {e}", candidate.display()))?;
+            fs::remove_file(&candidate).map_err(|e| {
+                format!(
+                    "Could not delete people-search file {}: {e}",
+                    candidate.display()
+                )
+            })?;
         }
     }
     Ok(serde_json::json!({ "deleted": true }))
@@ -94,7 +104,9 @@ mod tests {
         assert!(st_enabled.index_exists);
         assert_eq!(st_enabled.indexed_media, 0);
         assert_eq!(st_enabled.reviewed_people, 0);
-        assert!(st_enabled.message.contains("no vetted local face runtime is configured"));
+        assert!(st_enabled
+            .message
+            .contains("no vetted local face runtime is configured"));
 
         // 4. Test delete_index removes sqlite, wal, and shm
         fs::write(&wal_path, b"wal-data").unwrap();

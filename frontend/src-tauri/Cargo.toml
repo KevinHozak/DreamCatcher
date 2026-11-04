@@ -1,6 +1,6 @@
 [package]
 name = "dreamcatcher"
-version = "1.9.6"
+version = "1.9.7"
 description = "DreamCatcher - Local AI Photo Triage Cockpit"
 authors = ["Kevin Hozak"]
 license = "MIT"
@@ -10,6 +10,11 @@ rust-version = "1.89"
 [lib]
 name = "dreamcatcher_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = []
+portal-fixtures = ["portal-client/host-fixtures"]
+custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }

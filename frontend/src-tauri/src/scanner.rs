@@ -66,10 +66,20 @@ pub fn find_json_sidecar(filepath: &Path) -> Option<PathBuf> {
         if let Some(m) = caps.get(1) {
             let dup_num = m.as_str();
             let base_stem = &stem[..caps.get(0).unwrap().start()];
-            let dot_ext = if ext.is_empty() { String::new() } else { format!(".{}", ext) };
-            candidates.push(p_dir.join(format!("{}{}({}).supplemental-metadata.json", base_stem, dot_ext, dup_num)));
+            let dot_ext = if ext.is_empty() {
+                String::new()
+            } else {
+                format!(".{}", ext)
+            };
+            candidates.push(p_dir.join(format!(
+                "{}{}({}).supplemental-metadata.json",
+                base_stem, dot_ext, dup_num
+            )));
             candidates.push(p_dir.join(format!("{}{}({}).json", base_stem, dot_ext, dup_num)));
-            candidates.push(p_dir.join(format!("{}({}){}.supplemental-metadata.json", base_stem, dup_num, dot_ext)));
+            candidates.push(p_dir.join(format!(
+                "{}({}){}.supplemental-metadata.json",
+                base_stem, dup_num, dot_ext
+            )));
             candidates.push(p_dir.join(format!("{}({}){}.json", base_stem, dup_num, dot_ext)));
         }
     }
@@ -105,7 +115,11 @@ pub fn extract_timestamp(filepath: &Path, sidecar_path: Option<&Path>) -> (DateT
     }
 
     // 2. EXIF data
-    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = filepath
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     if PHOTO_EXTS.contains(&ext.as_str()) {
         if let Ok(file) = File::open(filepath) {
             let mut bufreader = BufReader::new(file);
@@ -115,7 +129,8 @@ pub fn extract_timestamp(filepath: &Path, sidecar_path: Option<&Path>) -> (DateT
                         let s = field.display_value().to_string();
                         // EXIF date format: "YYYY:MM:DD HH:MM:SS"
                         let clean = s.trim().trim_matches('"');
-                        if let Ok(naive) = NaiveDateTime::parse_from_str(clean, "%Y:%m:%d %H:%M:%S") {
+                        if let Ok(naive) = NaiveDateTime::parse_from_str(clean, "%Y:%m:%d %H:%M:%S")
+                        {
                             return (DateTime::from_naive_utc_and_offset(naive, Utc), false);
                         }
                     }
@@ -191,15 +206,23 @@ pub fn extract_gps_coordinates(filepath: &Path, sidecar_path: Option<&Path>) -> 
     }
 
     // 2. EXIF data
-    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = filepath
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     if PHOTO_EXTS.contains(&ext.as_str()) {
         if let Ok(file) = File::open(filepath) {
             let mut bufreader = BufReader::new(file);
             if let Ok(exif) = Reader::new().read_from_container(&mut bufreader) {
                 let lat_val = exif.get_field(Tag::GPSLatitude, In::PRIMARY);
-                let lat_ref = exif.get_field(Tag::GPSLatitudeRef, In::PRIMARY).map(|f| f.display_value().to_string());
+                let lat_ref = exif
+                    .get_field(Tag::GPSLatitudeRef, In::PRIMARY)
+                    .map(|f| f.display_value().to_string());
                 let lon_val = exif.get_field(Tag::GPSLongitude, In::PRIMARY);
-                let lon_ref = exif.get_field(Tag::GPSLongitudeRef, In::PRIMARY).map(|f| f.display_value().to_string());
+                let lon_ref = exif
+                    .get_field(Tag::GPSLongitudeRef, In::PRIMARY)
+                    .map(|f| f.display_value().to_string());
 
                 if let (Some(lat_f), Some(lon_f)) = (lat_val, lon_val) {
                     let lat = parse_rational_deg(&lat_f.value, lat_ref.as_deref());
@@ -238,7 +261,11 @@ pub fn extract_description(
     }
 
     // 2. EXIF data (Tag::ImageDescription)
-    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = filepath
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     if PHOTO_EXTS.contains(&ext.as_str()) {
         if let Ok(file) = File::open(filepath) {
             let mut bufreader = BufReader::new(file);
@@ -261,7 +288,9 @@ pub fn scan_directory(
     source_dir: &Path,
     month_filter: Option<&str>,
 ) -> Result<(Vec<MediaItem>, usize), String> {
-    let source_dir = source_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let source_dir = source_dir
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
     let protected: HashSet<&str> = [
         "pictures",
         "videos",
@@ -295,7 +324,11 @@ pub fn scan_directory(
             continue;
         }
         let p = entry.path();
-        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
         if is_media_ext(&ext) {
             total_discovered += 1;
             let sidecar = find_json_sidecar(p);
@@ -310,7 +343,11 @@ pub fn scan_directory(
 
             let gps = extract_gps_coordinates(p, sidecar.as_deref());
             let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+            let name = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
             let is_video = is_video_ext(&ext);
 
             let (desc_opt, source_opt) = extract_description(p, sidecar.as_deref());

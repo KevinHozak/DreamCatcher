@@ -108,8 +108,9 @@ pub fn decode_heic(bytes: &[u8]) -> Result<image::DynamicImage, String> {
     let output = heic::DecoderConfig::new()
         .decode(bytes, heic::PixelLayout::Rgba8)
         .map_err(|e| format!("Failed to decode HEIC: {:?}", e))?;
-    let img_buf = image::RgbaImage::from_raw(output.width as u32, output.height as u32, output.data)
-        .ok_or_else(|| "Failed to construct RGBA image from HEIC buffer".to_string())?;
+    let img_buf =
+        image::RgbaImage::from_raw(output.width as u32, output.height as u32, output.data)
+            .ok_or_else(|| "Failed to construct RGBA image from HEIC buffer".to_string())?;
     Ok(image::DynamicImage::ImageRgba8(img_buf))
 }
 
@@ -147,15 +148,19 @@ fn extract_video_thumbnail(filepath: &Path, max_dim: u32) -> Option<Vec<u8>> {
         max_dim, max_dim
     );
     let output = std::process::Command::new("ffmpeg")
-        .args([
-            "-hide_banner", "-loglevel", "error", "-i",
-        ])
+        .args(["-hide_banner", "-loglevel", "error", "-i"])
         .arg(filepath)
-        .args([
-            "-frames:v", "1", "-vf",
-        ])
+        .args(["-frames:v", "1", "-vf"])
         .arg(scale)
-        .args(["-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "4", "pipe:1"])
+        .args([
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "mjpeg",
+            "-q:v",
+            "4",
+            "pipe:1",
+        ])
         .output()
         .ok()?;
     if !output.status.success() || output.stdout.is_empty() {
@@ -188,7 +193,11 @@ pub fn render_thumbnail(filepath: &Path, max_dim: u32) -> Result<(Vec<u8>, Strin
         return Ok(cached);
     }
 
-    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = filepath
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     if is_video_ext(&ext) {
         if let Some(frame) = extract_video_thumbnail(filepath, max_dim) {
             let mime = "image/jpeg".to_string();
@@ -234,7 +243,11 @@ pub fn render_thumbnail(filepath: &Path, max_dim: u32) -> Result<(Vec<u8>, Strin
 }
 
 pub fn read_full_media(filepath: &Path) -> Result<(Vec<u8>, String), String> {
-    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = filepath
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     if ext == "heic" || ext == "heif" {
         let bytes = fs::read(filepath).map_err(|e| format!("Failed to read HEIC file: {}", e))?;
         let img = decode_heic(&bytes)?;
@@ -375,14 +388,19 @@ mod tests {
             return;
         }
 
-        let video_path = std::env::temp_dir().join(format!(
-            "dreamcatcher-video-{}.mp4",
-            std::process::id()
-        ));
+        let video_path =
+            std::env::temp_dir().join(format!("dreamcatcher-video-{}.mp4", std::process::id()));
         let created = std::process::Command::new("ffmpeg")
             .args([
-                "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
-                "color=c=blue:s=640x360:d=1", "-frames:v", "1",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=blue:s=640x360:d=1",
+                "-frames:v",
+                "1",
             ])
             .arg(&video_path)
             .status()

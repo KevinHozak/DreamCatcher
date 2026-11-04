@@ -779,7 +779,7 @@ dependencies = [
 
 [[package]]
 name = "dreamcatcher"
-version = "1.9.6"
+version = "1.9.7"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2809,9 +2809,10 @@ dependencies = [
 
 [[package]]
 name = "portal-client"
-version = "1.1.0"
+version = "1.6.0"
 dependencies = [
  "libc",
+ "serde",
  "serde_json",
  "sha2",
  "socket2",

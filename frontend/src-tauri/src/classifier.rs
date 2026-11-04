@@ -98,7 +98,11 @@ pub fn put_cache(filepath: &Path, entry: VisionCacheEntry) {
 }
 
 pub fn get_downscaled_image_bytes(filepath: &Path, max_dim: u32) -> Option<Vec<u8>> {
-    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = filepath
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     let img = if ext == "heic" || ext == "heif" {
         let bytes = fs::read(filepath).ok()?;
         crate::media::decode_heic(&bytes).ok()?
@@ -118,9 +122,7 @@ pub fn get_downscaled_image_bytes(filepath: &Path, max_dim: u32) -> Option<Vec<u
 
     let rgb_img = crate::media::to_rgb_with_background(&resized);
     let mut buf = Cursor::new(Vec::new());
-    rgb_img
-        .write_to(&mut buf, image::ImageFormat::Jpeg)
-        .ok()?;
+    rgb_img.write_to(&mut buf, image::ImageFormat::Jpeg).ok()?;
     Some(buf.into_inner())
 }
 
@@ -140,8 +142,16 @@ pub fn classify_heuristic(filepath: &Path) -> ClassificationResult {
         };
     }
 
-    let name = filepath.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
-    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let name = filepath
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let ext = filepath
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
 
     // 1. Videos are obvious photos/memories
     if is_video_ext(&ext) {
@@ -156,9 +166,23 @@ pub fn classify_heuristic(filepath: &Path) -> ClassificationResult {
 
     // 2. Filename patterns
     let doc_patterns = [
-        "screenshot", "scan", "receipt", "invoice", "bill", "statement",
-        "ticket", "label", "whiteboard", "note", "document", "card",
-        "manual", "serial", "rx", "prescription", "wp-",
+        "screenshot",
+        "scan",
+        "receipt",
+        "invoice",
+        "bill",
+        "statement",
+        "ticket",
+        "label",
+        "whiteboard",
+        "note",
+        "document",
+        "card",
+        "manual",
+        "serial",
+        "rx",
+        "prescription",
+        "wp-",
     ];
 
     for pat in &doc_patterns {
@@ -261,7 +285,11 @@ pub async fn classify_with_moondream(
         }
     }
 
-    Ok(("PHOTO".to_string(), "Authentic visual scene".to_string(), caption))
+    Ok((
+        "PHOTO".to_string(),
+        "Authentic visual scene".to_string(),
+        caption,
+    ))
 }
 
 pub async fn analyze_image(
@@ -292,7 +320,11 @@ pub async fn analyze_image(
     if backend == "ollama" {
         match classify_with_moondream(client, &data, ollama_model, ollama_url).await {
             Ok((cat, reason, caption)) => {
-                let tier = if cat == "DOCUMENT" { "OBVIOUS" } else { "MIXED" };
+                let tier = if cat == "DOCUMENT" {
+                    "OBVIOUS"
+                } else {
+                    "MIXED"
+                };
                 let entry = VisionCacheEntry {
                     category: cat.clone(),
                     tier: tier.to_string(),

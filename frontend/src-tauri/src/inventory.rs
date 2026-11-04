@@ -776,7 +776,10 @@ mod tests {
                 Some("Family vacation on the beach")
             );
             assert_eq!(page.items[0].description_source.as_deref(), Some("sidecar"));
-            assert_eq!(page.items[0].description_status.as_deref(), Some("complete"));
+            assert_eq!(
+                page.items[0].description_status.as_deref(),
+                Some("complete")
+            );
 
             // User overrides description
             save_description_connection(&conn, &item_identity, Some("Custom user memory")).unwrap();
@@ -785,7 +788,10 @@ mod tests {
                 page_after_user.items[0].description.as_deref(),
                 Some("Custom user memory")
             );
-            assert_eq!(page_after_user.items[0].description_source.as_deref(), Some("user"));
+            assert_eq!(
+                page_after_user.items[0].description_source.as_deref(),
+                Some("user")
+            );
 
             // Rescan should NOT overwrite user description with sidecar description
             let (rescan_items, _) = scan_directory(&test_root, None).unwrap();
@@ -807,7 +813,10 @@ mod tests {
                 page_after_rescan.items[0].description.as_deref(),
                 Some("Custom user memory")
             );
-            assert_eq!(page_after_rescan.items[0].description_source.as_deref(), Some("user"));
+            assert_eq!(
+                page_after_rescan.items[0].description_source.as_deref(),
+                Some("user")
+            );
 
             fs::remove_dir_all(test_root).unwrap();
             let _ = fs::remove_file(scan_db_path);
@@ -869,54 +878,87 @@ mod tests {
                 }
             ]
         });
-        fs::write(&json_path, serde_json::to_string_pretty(&legacy_data).unwrap()).unwrap();
+        fs::write(
+            &json_path,
+            serde_json::to_string_pretty(&legacy_data).unwrap(),
+        )
+        .unwrap();
 
         // 1. Initial connect migrates data and creates backup
         {
-            let conn = connect(&db_path, Some(&json_path)).expect("initial migration connect failed");
-            let pic_page = query_connection(&conn, InventoryQuery {
-                root_kind: "pictures".into(),
-                ..Default::default()
-            }).expect("failed to query pictures");
+            let conn =
+                connect(&db_path, Some(&json_path)).expect("initial migration connect failed");
+            let pic_page = query_connection(
+                &conn,
+                InventoryQuery {
+                    root_kind: "pictures".into(),
+                    ..Default::default()
+                },
+            )
+            .expect("failed to query pictures");
             assert_eq!(pic_page.total, 1);
             assert_eq!(pic_page.items[0].identity, "legacy-pic-1");
 
-            let vid_page = query_connection(&conn, InventoryQuery {
-                root_kind: "videos".into(),
-                ..Default::default()
-            }).expect("failed to query videos");
+            let vid_page = query_connection(
+                &conn,
+                InventoryQuery {
+                    root_kind: "videos".into(),
+                    ..Default::default()
+                },
+            )
+            .expect("failed to query videos");
             assert_eq!(vid_page.total, 1);
             assert_eq!(vid_page.items[0].identity, "legacy-vid-1");
 
             // Verify backup was created
-            let backup_path_str: String = conn.query_row(
-                "SELECT value FROM inventory_meta WHERE key='legacy_migration_backup'",
-                [],
-                |r| r.get(0)
-            ).expect("legacy_migration_backup meta not found");
+            let backup_path_str: String = conn
+                .query_row(
+                    "SELECT value FROM inventory_meta WHERE key='legacy_migration_backup'",
+                    [],
+                    |r| r.get(0),
+                )
+                .expect("legacy_migration_backup meta not found");
             let backup_path = PathBuf::from(&backup_path_str);
-            assert!(backup_path.exists(), "Backup file was not created: {:?}", backup_path);
+            assert!(
+                backup_path.exists(),
+                "Backup file was not created: {:?}",
+                backup_path
+            );
             let backup_content = fs::read_to_string(&backup_path).unwrap();
             let original_content = fs::read_to_string(&json_path).unwrap();
-            assert_eq!(backup_content, original_content, "Backup content must match original legacy json");
-            assert!(json_path.exists(), "Original legacy json must remain intact");
+            assert_eq!(
+                backup_content, original_content,
+                "Backup content must match original legacy json"
+            );
+            assert!(
+                json_path.exists(),
+                "Original legacy json must remain intact"
+            );
 
             // Verify unsupported person filter returns explicit error
-            let person_err = query_connection(&conn, InventoryQuery {
-                root_kind: "pictures".into(),
-                person: Some("Alice".into()),
-                ..Default::default()
-            }).unwrap_err();
+            let person_err = query_connection(
+                &conn,
+                InventoryQuery {
+                    root_kind: "pictures".into(),
+                    person: Some("Alice".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
             assert!(person_err.contains("People filtering is unavailable in the native app until local face indexing is implemented"));
         }
 
         // 2. Repeat open is safe, idempotent, and does not duplicate records
         {
             let conn = connect(&db_path, Some(&json_path)).expect("repeat connect failed");
-            let pic_page = query_connection(&conn, InventoryQuery {
-                root_kind: "pictures".into(),
-                ..Default::default()
-            }).expect("failed to query pictures after repeat open");
+            let pic_page = query_connection(
+                &conn,
+                InventoryQuery {
+                    root_kind: "pictures".into(),
+                    ..Default::default()
+                },
+            )
+            .expect("failed to query pictures after repeat open");
             assert_eq!(pic_page.total, 1);
 
             let stats = stats_connection(&conn).expect("failed to get stats");

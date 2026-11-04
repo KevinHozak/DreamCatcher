@@ -1,5 +1,6 @@
 //! Trusted backend only. Fixed loopback transport, no retries or cloud fallback.
 pub mod image;
+pub mod lifecycle;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
@@ -100,6 +101,7 @@ impl Completion {
 pub struct PortalClient {
     port: u16,
     key: String,
+    managed: Option<lifecycle::ManagedPeer>,
 }
 impl PortalClient {
     pub fn new(port: u16, key: String) -> Result<Self, ClientError> {
@@ -109,7 +111,11 @@ impl PortalClient {
         {
             return Err(error("not_sent", "INVALID_CONFIGURATION"));
         }
-        Ok(Self { port, key })
+        Ok(Self {
+            port,
+            key,
+            managed: None,
+        })
     }
 
     pub fn complete(
@@ -162,6 +168,13 @@ impl PortalClient {
         {
             return Err(error("not_sent", "INVALID_REQUEST"));
         }
+        if let Some(managed) = &self.managed {
+            let value: Value =
+                serde_json::from_slice(&body).map_err(|_| error("not_sent", "INVALID_REQUEST"))?;
+            if value["model"] != managed.policy.alias || max_tokens > managed.policy.output {
+                return Err(error("not_sent", "CLIENT_CEILING_EXCEEDED"));
+            }
+        }
         operation.claim()?;
         let deadline = Instant::now() + timeout;
         check(deadline, cancel, false)?;
@@ -210,7 +223,12 @@ impl PortalClient {
         }
         let mut stream: TcpStream = socket.into();
         check(deadline, cancel, false)?;
-        let mut wire=format!("POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nPortal-Contract: {}\r\nAuthorization: Bearer {}\r\nIdempotency-Key: {}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",self.port,contract,self.key,operation.identity,body.len()).into_bytes();
+        if let Some(managed) = &self.managed {
+            managed.verify(&stream)?;
+        }
+        check(deadline, cancel, false)?;
+        let extra=self.managed.as_ref().map(|m|format!("Portal-Commitment: {}\r\nPortal-Max-USD-Micros: {}\r\nPortal-Max-Tokens: {}\r\n",m.policy.commitment,m.policy.usd,m.policy.tokens)).unwrap_or_default();
+        let mut wire=format!("POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nPortal-Contract: {}\r\nAuthorization: Bearer {}\r\nIdempotency-Key: {}\r\nContent-Type: application/json\r\nConnection: close\r\n{}Content-Length: {}\r\n\r\n",self.port,contract,self.key,operation.identity,extra,body.len()).into_bytes();
         wire.extend_from_slice(&body);
         let mut attempted = false;
         let mut offset = 0;

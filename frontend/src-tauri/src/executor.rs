@@ -75,15 +75,28 @@ pub fn get_unique_destination_path(target_path: &Path) -> PathBuf {
     };
 
     let (base, ext) = if name.ends_with(".supplemental-metadata.json") {
-        (&name[..name.len() - ".supplemental-metadata.json".len()], ".supplemental-metadata.json")
+        (
+            &name[..name.len() - ".supplemental-metadata.json".len()],
+            ".supplemental-metadata.json",
+        )
     } else {
-        let stem = target_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let stem = target_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
         (stem, "")
     };
 
     let ext_str = if ext.is_empty() {
-        let extension = target_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if extension.is_empty() { String::new() } else { format!(".{}", extension) }
+        let extension = target_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if extension.is_empty() {
+            String::new()
+        } else {
+            format!(".{}", extension)
+        }
     } else {
         ext.to_string()
     };
@@ -104,11 +117,16 @@ pub fn execute_triage_plan(
     pictures_dir: Option<PathBuf>,
     videos_dir: Option<PathBuf>,
 ) -> Result<ExecutionResult, String> {
-    let source_dir = source_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let source_dir = source_dir
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
     let pics_dir = resolve_destination(&source_dir, pictures_dir, "Pictures")?;
     let vids_dir = resolve_destination(&source_dir, videos_dir, "Videos")?;
     if pics_dir == vids_dir || pics_dir.starts_with(&vids_dir) || vids_dir.starts_with(&pics_dir) {
-        return Err("Pictures and Videos destinations must be different non-overlapping directories".to_string());
+        return Err(
+            "Pictures and Videos destinations must be different non-overlapping directories"
+                .to_string(),
+        );
     }
     let docs_dir = source_dir.join("Pictures_Doc");
     let trash_dir = source_dir.join("Trash");
@@ -221,9 +239,8 @@ pub fn execute_triage_plan(
                 let dest_sc = get_unique_destination_path(&target_dir.join(target_sc_name));
 
                 let sc_op = if action == "move" {
-                    fs::rename(&sc, &dest_sc).or_else(|_| {
-                        fs::copy(&sc, &dest_sc).and_then(|_| fs::remove_file(&sc))
-                    })
+                    fs::rename(&sc, &dest_sc)
+                        .or_else(|_| fs::copy(&sc, &dest_sc).and_then(|_| fs::remove_file(&sc)))
                 } else {
                     fs::copy(&sc, &dest_sc).map(|_| ())
                 };
@@ -262,19 +279,31 @@ pub fn execute_triage_plan(
     })
 }
 
-fn resolve_destination(source_dir: &Path, configured: Option<PathBuf>, label: &str) -> Result<PathBuf, String> {
+fn resolve_destination(
+    source_dir: &Path,
+    configured: Option<PathBuf>,
+    label: &str,
+) -> Result<PathBuf, String> {
     let is_configured = configured.is_some();
     let destination = configured.unwrap_or_else(|| source_dir.join(label));
     if !destination.exists() {
         if is_configured {
-            return Err(format!("{} destination does not exist: {:?}", label, destination));
+            return Err(format!(
+                "{} destination does not exist: {:?}",
+                label, destination
+            ));
         }
         return Ok(destination);
     }
     if !destination.is_dir() {
-        return Err(format!("{} destination is not a directory: {:?}", label, destination));
+        return Err(format!(
+            "{} destination is not a directory: {:?}",
+            label, destination
+        ));
     }
-    let canonical = destination.canonicalize().map_err(|e| format!("Invalid {} destination: {}", label, e))?;
+    let canonical = destination
+        .canonicalize()
+        .map_err(|e| format!("Invalid {} destination: {}", label, e))?;
     if canonical == source_dir {
         return Err(format!("{} destination cannot be the source folder", label));
     }
@@ -282,14 +311,18 @@ fn resolve_destination(source_dir: &Path, configured: Option<PathBuf>, label: &s
 }
 
 pub fn rollback_triage_plan(source_dir: &Path) -> Result<RollbackResult, String> {
-    let source_dir = source_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let source_dir = source_dir
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
     let ledger_file = source_dir.join("_dreamcatcher_ledger.json");
     if !ledger_file.exists() {
         return Err(format!("No triage ledger found at {:?}", ledger_file));
     }
 
-    let content = fs::read_to_string(&ledger_file).map_err(|e| format!("Cannot read ledger: {}", e))?;
-    let ledger_data: LedgerFile = serde_json::from_str(&content).map_err(|e| format!("Invalid ledger JSON: {}", e))?;
+    let content =
+        fs::read_to_string(&ledger_file).map_err(|e| format!("Cannot read ledger: {}", e))?;
+    let ledger_data: LedgerFile =
+        serde_json::from_str(&content).map_err(|e| format!("Invalid ledger JSON: {}", e))?;
 
     let action = ledger_data.action;
     let mut restored_items = 0;
@@ -351,7 +384,11 @@ pub fn rollback_triage_plan(source_dir: &Path) -> Result<RollbackResult, String>
     for sub in &["Pictures", "Videos", "Pictures_Doc", "Trash"] {
         let target_sub = source_dir.join(sub);
         if target_sub.exists() && target_sub.is_dir() {
-            for entry in WalkDir::new(&target_sub).contents_first(true).into_iter().filter_map(|e| e.ok()) {
+            for entry in WalkDir::new(&target_sub)
+                .contents_first(true)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
                 if entry.file_type().is_dir() {
                     let _ = fs::remove_dir(entry.path());
                 }
@@ -403,7 +440,11 @@ mod tests {
 
         // Also create pre-existing sidecar in destination
         let existing_dest_sidecar = existing_dest_dir.join("photo.jpg.supplemental-metadata.json");
-        fs::write(&existing_dest_sidecar, b"EXISTING PRE-COLLISION SIDECAR CONTENT").unwrap();
+        fs::write(
+            &existing_dest_sidecar,
+            b"EXISTING PRE-COLLISION SIDECAR CONTENT",
+        )
+        .unwrap();
         let existing_sidecar_hash_before = sha256_file(&existing_dest_sidecar);
 
         // Pre-existing collide2 files in destination to test _2 collision
@@ -439,33 +480,42 @@ mod tests {
         let src_col2_sc_hash = sha256_file(&src_col2_sc);
 
         let mut decisions = HashMap::new();
-        decisions.insert("photo-1".to_string(), DecisionInfo {
-            path: src_photo.to_string_lossy().to_string(),
-            category: "PHOTO".to_string(),
-            is_video: false,
-            folder_name: Some("Daily Life".to_string()),
-            month_str: Some("2024-01".to_string()),
-            has_sidecar: true,
-            sidecar_path: Some(src_sidecar.to_string_lossy().to_string()),
-        });
-        decisions.insert("video-1".to_string(), DecisionInfo {
-            path: src_video.to_string_lossy().to_string(),
-            category: "VIDEO".to_string(),
-            is_video: true,
-            folder_name: Some("Vacation".to_string()),
-            month_str: Some("2024-01".to_string()),
-            has_sidecar: false,
-            sidecar_path: None,
-        });
-        decisions.insert("col2-1".to_string(), DecisionInfo {
-            path: src_col2.to_string_lossy().to_string(),
-            category: "PHOTO".to_string(),
-            is_video: false,
-            folder_name: Some("Daily Life".to_string()),
-            month_str: Some("2024-01".to_string()),
-            has_sidecar: true,
-            sidecar_path: Some(src_col2_sc.to_string_lossy().to_string()),
-        });
+        decisions.insert(
+            "photo-1".to_string(),
+            DecisionInfo {
+                path: src_photo.to_string_lossy().to_string(),
+                category: "PHOTO".to_string(),
+                is_video: false,
+                folder_name: Some("Daily Life".to_string()),
+                month_str: Some("2024-01".to_string()),
+                has_sidecar: true,
+                sidecar_path: Some(src_sidecar.to_string_lossy().to_string()),
+            },
+        );
+        decisions.insert(
+            "video-1".to_string(),
+            DecisionInfo {
+                path: src_video.to_string_lossy().to_string(),
+                category: "VIDEO".to_string(),
+                is_video: true,
+                folder_name: Some("Vacation".to_string()),
+                month_str: Some("2024-01".to_string()),
+                has_sidecar: false,
+                sidecar_path: None,
+            },
+        );
+        decisions.insert(
+            "col2-1".to_string(),
+            DecisionInfo {
+                path: src_col2.to_string_lossy().to_string(),
+                category: "PHOTO".to_string(),
+                is_video: false,
+                folder_name: Some("Daily Life".to_string()),
+                month_str: Some("2024-01".to_string()),
+                has_sidecar: true,
+                sidecar_path: Some(src_col2_sc.to_string_lossy().to_string()),
+            },
+        );
 
         // Execute triage with move action
         let exec_result = execute_triage_plan(
@@ -474,34 +524,64 @@ mod tests {
             "move",
             Some(pictures.clone()),
             Some(videos.clone()),
-        ).expect("execute triage plan failed");
+        )
+        .expect("execute triage plan failed");
 
         assert!(exec_result.success);
         assert_eq!(exec_result.moved, 3);
         assert_eq!(exec_result.errors, 0);
 
         // 1. Confirm pre-existing file and sidecar in destination were NOT overwritten
-        assert_eq!(sha256_file(&existing_dest_file), existing_hash_before, "Existing destination file was overwritten!");
-        assert_eq!(sha256_file(&existing_dest_sidecar), existing_sidecar_hash_before, "Existing destination sidecar was overwritten!");
-        assert_eq!(sha256_file(&existing_col2), existing_col2_hash, "Existing collide2 was overwritten!");
-        assert_eq!(sha256_file(&existing_col2_1), existing_col2_1_hash, "Existing collide2_1 was overwritten!");
+        assert_eq!(
+            sha256_file(&existing_dest_file),
+            existing_hash_before,
+            "Existing destination file was overwritten!"
+        );
+        assert_eq!(
+            sha256_file(&existing_dest_sidecar),
+            existing_sidecar_hash_before,
+            "Existing destination sidecar was overwritten!"
+        );
+        assert_eq!(
+            sha256_file(&existing_col2),
+            existing_col2_hash,
+            "Existing collide2 was overwritten!"
+        );
+        assert_eq!(
+            sha256_file(&existing_col2_1),
+            existing_col2_1_hash,
+            "Existing collide2_1 was overwritten!"
+        );
 
         // 2. Confirm collision resolution generated photo_1.jpg and photo_1.jpg.supplemental-metadata.json
         let collided_photo = existing_dest_dir.join("photo_1.jpg");
-        assert!(collided_photo.exists(), "Collided photo not created as photo_1.jpg");
+        assert!(
+            collided_photo.exists(),
+            "Collided photo not created as photo_1.jpg"
+        );
         assert_eq!(sha256_file(&collided_photo), src_photo_hash);
 
         let collided_sidecar = existing_dest_dir.join("photo_1.jpg.supplemental-metadata.json");
-        assert!(collided_sidecar.exists(), "Collided sidecar not renamed appropriately");
+        assert!(
+            collided_sidecar.exists(),
+            "Collided sidecar not renamed appropriately"
+        );
         assert_eq!(sha256_file(&collided_sidecar), src_sidecar_hash);
 
         // Confirm _2 collision resolution for collide2.jpg and sidecar
         let collided_col2_2 = existing_dest_dir.join("collide2_2.jpg");
-        assert!(collided_col2_2.exists(), "Collided col2 not created as collide2_2.jpg");
+        assert!(
+            collided_col2_2.exists(),
+            "Collided col2 not created as collide2_2.jpg"
+        );
         assert_eq!(sha256_file(&collided_col2_2), src_col2_hash);
 
-        let collided_col2_2_sc = existing_dest_dir.join("collide2_2.jpg.supplemental-metadata.json");
-        assert!(collided_col2_2_sc.exists(), "Collided col2 sidecar not renamed appropriately");
+        let collided_col2_2_sc =
+            existing_dest_dir.join("collide2_2.jpg.supplemental-metadata.json");
+        assert!(
+            collided_col2_2_sc.exists(),
+            "Collided col2 sidecar not renamed appropriately"
+        );
         assert_eq!(sha256_file(&collided_col2_2_sc), src_col2_sc_hash);
 
         // Confirm video was moved to videos/Vacation/clip.mp4
@@ -537,7 +617,10 @@ mod tests {
 
         // 5. Confirm existing destination file is still intact and collided items are gone
         assert_eq!(sha256_file(&existing_dest_file), existing_hash_before);
-        assert_eq!(sha256_file(&existing_dest_sidecar), existing_sidecar_hash_before);
+        assert_eq!(
+            sha256_file(&existing_dest_sidecar),
+            existing_sidecar_hash_before
+        );
         assert_eq!(sha256_file(&existing_col2), existing_col2_hash);
         assert_eq!(sha256_file(&existing_col2_1), existing_col2_1_hash);
         assert!(!collided_photo.exists());

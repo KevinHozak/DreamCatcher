@@ -353,11 +353,41 @@ fn url_decode(input: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+        #[cfg(feature = "portal-fixtures")]
+    let portal_shared_fixture = std::env::args_os().any(|arg| arg.to_str() == Some("--portal-shared-fixture-qualification"));
+    #[cfg(feature = "portal-fixtures")]
+    if !portal_host::portal_fixture_args_present()
+        || !portal_shared_fixture
+        || !portal_host::fixture_configured()
+    {
+        return;
+    }
+    #[cfg(feature = "portal-fixtures")]
+    let Some(portal_fixture_data_directory) = portal_host::fixture_data_directory() else {
+        return;
+    };
+    #[cfg(not(feature = "portal-fixtures"))]
+    if portal_host::portal_fixture_args_present() {
+        return;
+    }
+    #[cfg(not(feature = "portal-fixtures"))]
+    let portal_shared_fixture = false;    let portal_qualification = std::env::args_os().any(|arg| arg.to_str() == Some("--portal-consent-qualification"));
     let mut context = tauri::generate_context!();
-    let portal_qualification = std::env::args().any(|arg| arg == "--portal-consent-qualification");
-    if portal_qualification {
-        context.config_mut().app.windows[0].title = "DreamCatcher - Generated consent qualification".into();
-        context.config_mut().app.windows[0].data_directory = Some(format!("DreamCatcherConsentQualification/{}", std::process::id()).into());
+    let isolated_portal_view = portal_qualification || portal_shared_fixture;
+    if isolated_portal_view {
+        context.config_mut().app.windows[0].title = if portal_shared_fixture {
+            "DreamCatcher - Shared Portal generated fixture".into()
+        } else {
+            "DreamCatcher - Generated consent qualification".into()
+        };
+        #[cfg(feature = "portal-fixtures")]
+        {
+            context.config_mut().app.windows[0].data_directory = Some(portal_fixture_data_directory.clone());
+        }
+        #[cfg(not(feature = "portal-fixtures"))]
+        {
+            context.config_mut().app.windows[0].data_directory = Some(format!("DreamCatcherConsentQualification/{}", std::process::id()).into());
+        }
         context.config_mut().app.windows[0].url = tauri::WebviewUrl::App("index.html#portal-consent-qualification".into());
     }
     tauri::Builder::default()
