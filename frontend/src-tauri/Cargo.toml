@@ -1,6 +1,6 @@
 [package]
 name = "dreamcatcher"
-version = "1.9.7"
+version = "1.9.8"
 description = "DreamCatcher - Local AI Photo Triage Cockpit"
 authors = ["Kevin Hozak"]
 license = "MIT"

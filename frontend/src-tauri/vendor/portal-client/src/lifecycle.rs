@@ -47,6 +47,15 @@ mod native {
     pub fn peer(_: &std::net::TcpStream, _: &Peer) -> Result<(), ClientError> {
         Err(unsupported())
     }
+    pub fn broker_pipe() -> Result<Option<String>, ClientError> {
+        Ok(None)
+    }
+    pub fn broker_request(
+        _: &str, _: bool, _: Instant, _: &Cancellation, _: &Cancellation,
+        _: &Registration,
+    ) -> Result<Value, ClientError> {
+        Err(unsupported())
+    }
 }
 
 pub const HOST_CONTRACT: &str = "portal.host/1";
@@ -694,6 +703,22 @@ impl SharedPortal {
         let root = native::root()?;
         let registration = Arc::new(Registration::load(root)?);
         check()?;
+        if let Some(pipe) = native::broker_pipe()? {
+            let frame = native::broker_request(
+                &pipe, acquire, deadline, cancel, dropped, &registration,
+            )?;
+            validate_frame(&frame, &registration)?;
+            if frame["state"] == "unavailable" {
+                return Err(frame_error(&frame));
+            }
+            let state = frame["state"].as_str().ok_or_else(invalid)?.to_owned();
+            let peer = if state == "running" {
+                Some(registration.peer(&frame)?)
+            } else {
+                None
+            };
+            return Ok(HostConnection { state, frame, registration, peer });
+        }
         let p = &registration.profile;
         let mut command = Command::new(&p.runtime.executable);
         command.args(["-I", "-B"]);
@@ -828,6 +853,7 @@ fn frame_error(frame: &Value) -> ClientError {
         "HOST_CANCELLED" => "HOST_CANCELLED",
         "HOST_START_TIMEOUT" => "HOST_START_TIMEOUT",
         "HOST_LAUNCH_REFUSED" => "HOST_LAUNCH_REFUSED",
+        "HOST_LAUNCH_CLEANUP_PENDING" => "HOST_LAUNCH_CLEANUP_PENDING",
         "HOST_PROFILE_INVALID" => "HOST_PROFILE_INVALID",
         "HOST_IDENTITY_MISMATCH" => "HOST_IDENTITY_MISMATCH",
         "HOST_INCOMPATIBLE" => "HOST_INCOMPATIBLE",
@@ -882,6 +908,65 @@ fn validate_frame(frame: &Value, r: &Registration) -> Result<(), ClientError> {
         }
     }
     Ok(())
+}
+
+const BROKER_CONTRACT: u32 = 1;
+fn broker_request_bytes(request_id: &str, op: &str) -> Result<Vec<u8>, ClientError> {
+    if !hex(request_id, 32) || !matches!(op, "status" | "acquire" | "cancel") {
+        return Err(error("not_sent", "HOST_PROFILE_INVALID"));
+    }
+    let bytes = serde_json::to_vec(&json!({"schema":BROKER_CONTRACT,"request_id":request_id,"op":op}))
+        .map_err(|_| invalid())?;
+    if bytes.len() > 512 { return Err(invalid()); }
+    Ok(bytes)
+}
+fn broker_reply_frame(raw: &[u8], request_id: &str) -> Result<Value, ClientError> {
+    let value: Value = document(raw)?;
+    let object = value.as_object().ok_or_else(invalid)?;
+    if value["schema"] != BROKER_CONTRACT || value["request_id"] != request_id
+        || !value["ok"].is_boolean() {
+        return Err(error("not_sent", "LIFECYCLE_UNRESOLVED"));
+    }
+    if value["ok"] == true {
+        if object.len()==4 && object.keys().all(|k|["schema","request_id","ok","cancelled"].contains(&k.as_str()))
+            && value["cancelled"]==true {
+            return Err(error("not_sent","HOST_CANCELLED"));
+        }
+        if object.len() != 4 || object.keys().any(|k| !["schema","request_id","ok","frame"].contains(&k.as_str()))
+            || !value["frame"].is_object() {
+            return Err(error("not_sent", "LIFECYCLE_UNRESOLVED"));
+        }
+        return Ok(value["frame"].clone());
+    }
+    if object.len() != 4 || object.keys().any(|k| !["schema","request_id","ok","code"].contains(&k.as_str())) {
+        return Err(error("not_sent", "LIFECYCLE_UNRESOLVED"));
+    }
+    let safe = match value["code"].as_str().unwrap_or("") {
+        "GUARDIAN_REQUEST_INVALID" => "GUARDIAN_REQUEST_INVALID",
+        "GUARDIAN_CALLER_REFUSED" => "GUARDIAN_CALLER_REFUSED",
+        "GUARDIAN_BUSY" => "GUARDIAN_BUSY",
+        "GUARDIAN_PROFILE_CHANGED" => "GUARDIAN_PROFILE_CHANGED",
+        "GUARDIAN_COLD_START_BLOCKED" => "GUARDIAN_COLD_START_BLOCKED",
+        "GUARDIAN_BROKER_UNAVAILABLE" => "GUARDIAN_BROKER_UNAVAILABLE",
+        "LIFECYCLE_UNRESOLVED" => "LIFECYCLE_UNRESOLVED",
+        "HOST_CANCELLED" => "HOST_CANCELLED",
+        "HOST_START_TIMEOUT" => "HOST_START_TIMEOUT",
+        "HOST_LAUNCH_REFUSED" => "HOST_LAUNCH_REFUSED",
+        "HOST_LAUNCH_CLEANUP_PENDING" => "HOST_LAUNCH_CLEANUP_PENDING",
+        "HOST_PROFILE_INVALID" => "HOST_PROFILE_INVALID",
+        "HOST_IDENTITY_MISMATCH" => "HOST_IDENTITY_MISMATCH",
+        "HOST_INCOMPATIBLE" => "HOST_INCOMPATIBLE",
+        "HOST_LISTENER_UNTRUSTED" => "HOST_LISTENER_UNTRUSTED",
+        "HOST_UNAVAILABLE" => "HOST_UNAVAILABLE",
+        "HOST_STOP_PENDING" => "HOST_STOP_PENDING",
+        "HOST_TIMEOUT_INVALID" => "HOST_TIMEOUT_INVALID",
+        "HOST_REGISTRATION_EXISTS" => "HOST_REGISTRATION_EXISTS",
+        "HOST_SELECTED_RELEASE_REQUIRED" => "HOST_SELECTED_RELEASE_REQUIRED",
+        "HOST_INPUT_PIN_FAILED" => "HOST_INPUT_PIN_FAILED",
+        "HOST_PLATFORM_UNSUPPORTED" => "HOST_PLATFORM_UNSUPPORTED",
+        _ => "LIFECYCLE_UNRESOLVED",
+    };
+    Err(error("not_sent", safe))
 }
 
 struct TaskState {
@@ -985,6 +1070,28 @@ mod tests {
         assert!(document::<Value>(br#"{"files":{"a":"1","a":"2"}}"#).is_err());
         assert!(document::<Value>(br#"{"state":"stopped","state":"running"}"#).is_err());
         assert!(document::<Value>(br#"{"state":"starting"}"#).is_ok());
+    }
+    #[test]
+    fn guardian_lifecycle_codec_is_content_free_bounded_and_exact() {
+        let id="0123456789abcdef0123456789abcdef";
+        let request=broker_request_bytes(id,"acquire").unwrap();
+        assert!(request.len()<=512);
+        let parsed:Value=document(&request).unwrap();
+        assert_eq!(parsed,json!({"schema":1,"request_id":id,"op":"acquire"}));
+        assert!(broker_request_bytes(id,"stop").is_err());
+        let frame=json!({"contract":"portal.host/1","state":"stopped","readiness":null});
+        let reply=json!({"schema":1,"request_id":id,"ok":true,"frame":frame});
+        assert_eq!(broker_reply_frame(&serde_json::to_vec(&reply).unwrap(),id).unwrap(),frame);
+        assert!(broker_reply_frame(br#"{"schema":1,"schema":1,"request_id":"0123456789abcdef0123456789abcdef","ok":true,"frame":{}}"#,id).is_err());
+        assert!(broker_reply_frame(br#"{"schema":1,"request_id":"0123456789abcdef0123456789abcdef","ok":true,"frame":{},"path":"C:\\private"}"#,id).is_err());
+        assert!(broker_reply_frame(br#"{"schema":1,"request_id":"fedcba9876543210fedcba9876543210","ok":true,"frame":{}}"#,id).is_err());
+        assert!(broker_reply_frame(br#"{"schema":1,"request_id":"0123456789abcdef0123456789abcdef","ok":false,"code":"HOST_COLD_START_BLOCKED"}"#,id).is_err());
+        let cleanup=json!({"schema":1,"request_id":id,"ok":false,"code":"HOST_LAUNCH_CLEANUP_PENDING"});
+        let cleanup_error=broker_reply_frame(&serde_json::to_vec(&cleanup).unwrap(),id).unwrap_err();
+        assert_eq!(cleanup_error.receipt()["code"],"HOST_LAUNCH_CLEANUP_PENDING");
+        let unknown=json!({"schema":1,"request_id":id,"ok":false,"code":"ARBITRARY_INTERNAL_DETAIL"});
+        let unknown_error=broker_reply_frame(&serde_json::to_vec(&unknown).unwrap(),id).unwrap_err();
+        assert_eq!(unknown_error.receipt()["code"],"LIFECYCLE_UNRESOLVED");
     }
     #[test]
     fn reviewed_policy_refuses_unbounded_or_invalid_limits() {
